@@ -260,6 +260,9 @@ in
         (lib.cmakeBool "LLVM_BUILD_DOCS" enableManpages)
         (lib.cmakeBool "LLVM_ENABLE_SPHINX" enableManpages)
         (lib.cmakeBool "SPHINX_OUTPUT_MAN" enableManpages)
+
+        # The buildbot script always enables level-zero no matter what, so we override its flag here to allow disabling it
+        (lib.cmakeFeature "SYCL_ENABLE_BACKENDS" (lib.strings.concatStringsSep ";" unified-runtime.backends))
       ]
       ++ unified-runtime.cmakeFlags;
 

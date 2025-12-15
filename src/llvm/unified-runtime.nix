@@ -65,8 +65,6 @@ in
         libbacktrace
         hwloc
         hdrhistogram_c
-        # Mandatory even without level-zero backend
-        level-zero
       ]
       ++ lib.optionals openclSupport [
         opencl-headers
@@ -76,6 +74,7 @@ in
         rocmtoolkit_joined
       ]
       ++ lib.optionals levelZeroSupport [
+        level-zero
         intel-compute-runtime
       ]
       ++ lib.optionals finalAttrs.doCheck [
@@ -142,6 +141,13 @@ in
         (lib.cmakeFeature "UR_HIP_ROCM_DIR" "${rocmtoolkit_joined}")
         (lib.cmakeFeature "GPU_TARGETS" rocmGpuTargets)
       ];
+
+    passthru.backends =
+      lib.optionals levelZeroSupport ["level_zero" "level_zero_v2"]
+      ++ lib.optional cudaSupport "cuda"
+      ++ lib.optional rocmSupport "hip"
+      ++ lib.optional nativeCpuSupport "native_cpu"
+      ++ lib.optional openclSupport "opencl";
 
     meta = with lib; {
       description = "Intel LLVM-based compiler with SYCL support";
