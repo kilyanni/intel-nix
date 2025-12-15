@@ -1,8 +1,7 @@
 {
   stdenv,
   writeTextFile,
-}:
-{
+}: {
   sycl-compile = stdenv.mkDerivation {
     name = "intel-llvm-test-sycl-compile";
 

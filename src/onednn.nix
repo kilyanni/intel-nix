@@ -5,6 +5,7 @@
   stdenv,
   llvmPackages,
   intel-llvm,
+  ccacheIntelStdenv,
   gcc,
   onetbb,
   ocl-icd,
@@ -16,6 +17,7 @@
   stdenv =
     if useSycl
     then intel-llvm.stdenv
+    # then ccacheIntelStdenv
     else stdenv;
 in
   # This was originally called mkl-dnn, then it was renamed to dnnl, and it has

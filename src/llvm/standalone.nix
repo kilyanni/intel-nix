@@ -185,248 +185,237 @@ in
 
       (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_ONEAPI-CK" "${deps.oneapi-ck}")
     ];
-  })).overrideScope (llvmFinal: llvmPrev: {
-    # prev = throw llvmPrev.tblgen;
-    tblgen = llvmPrev.tblgen.overrideAttrs (old: {
-      # TODO: This is sketchy
-      # buildInputs = (old.buildInputs or []) ++ [vc-intrinsics];
-      buildInputs =
-        (old.buildInputs or [])
-        ++ [
-          zstd
-          zlib
+  })).overrideScope
+  (
+    llvmFinal: llvmPrev: {
+      # prev = throw llvmPrev.tblgen;
+      tblgen = llvmPrev.tblgen.overrideAttrs (old: {
+        # TODO: This is sketchy
+        # buildInputs = (old.buildInputs or []) ++ [vc-intrinsics];
+        buildInputs =
+          (old.buildInputs or [])
+          ++ [
+            zstd
+            zlib
+          ];
+      });
+
+      buildLlvmTools = {
+        inherit
+          (llvmFinal)
+          tblgen
+          llvm
+          libclc
+          clang
+          ;
+      };
+
+      merged = symlinkJoin {
+        pname = "intel-llvm";
+        inherit version;
+        paths = with llvmFinal; [
+          llvm
+          clang
+          sycl
+          opencl-aot
+          xpti
+          xptifw
+          libdevice
         ];
-    });
+      };
 
-    buildLlvmTools = {
-      inherit (llvmFinal) tblgen llvm libclc clang;
-    };
+      stdenv = llvmPrev.stdenv.override {
+        cc = llvmFinal.merged;
+      };
+      #stdenv = llvmPrev.stdenv.overrideAttrs (old: {
+      #  propagatedBuildInputs =
+      #    old.propagatedBuildInputs
+      #    ++ [
+      #      llvmFinal.merged
+      #    ];
+      #});
 
-    merged = symlinkJoin {
-      pname = "intel-llvm";
-      inherit version;
-      paths = with llvmFinal; [
-        llvm
-        clang
-        sycl
-        opencl-aot
-        xpti
-        xptifw
-        libdevice
-      ];
-    };
+      # Synthetic, not to be built directly
+      llvm-base =
+        (llvmPrev.libllvm.override {
+          buildLlvmTools = llvmFinal.buildLlvmTools;
+          # tblgen = llvmFinal.tblgen;
+        }).overrideAttrs
+        (
+          old: let
+            src' = runCommand "llvm-src-${version}" {inherit (src) passthru;} ''
+              mkdir -p "$out"
+              cp -r ${src}/llvm "$out"
+              cp -r ${src}/cmake "$out"
+              cp -r ${src}/third-party "$out"
+              cp -r ${src}/libc "$out"
 
-    stdenv = llvmPrev.stdenv.override {
-      cc = llvmFinal.merged;
-    };
-    #stdenv = llvmPrev.stdenv.overrideAttrs (old: {
-    #  propagatedBuildInputs =
-    #    old.propagatedBuildInputs
-    #    ++ [
-    #      llvmFinal.merged
-    #    ];
-    #});
+              cp -r ${src}/sycl "$out"
+              cp -r ${src}/sycl-jit "$out"
+              cp -r ${src}/llvm-spirv "$out"
+              # cp -r ${src}/unified-runtime "$out"
 
-    # Synthetic, not to be built directly
-    llvm-base =
-      (llvmPrev.libllvm.override {
-        buildLlvmTools = llvmFinal.buildLlvmTools;
-        # tblgen = llvmFinal.tblgen;
-      }).overrideAttrs (
-        old: let
-          src' = runCommand "llvm-src-${version}" {inherit (src) passthru;} ''
-            mkdir -p "$out"
-            cp -r ${src}/llvm "$out"
-            cp -r ${src}/cmake "$out"
-            cp -r ${src}/third-party "$out"
-            cp -r ${src}/libc "$out"
+              chmod u+w "$out/llvm/tools"
+              cp -r ${src}/polly "$out/llvm/tools"
 
-            cp -r ${src}/sycl "$out"
-            cp -r ${src}/sycl-jit "$out"
-            cp -r ${src}/llvm-spirv "$out"
-            # cp -r ${src}/unified-runtime "$out"
+              # chmod u+w "$out/llvm/projects"
+              # cp -r ${vc-intrinsics.src} "$out/llvm/projects"
+            '';
+          in {
+            # inherit src;
+            src = src';
 
-            chmod u+w "$out/llvm/tools"
-            cp -r ${src}/polly "$out/llvm/tools"
+            # prev = throw (builtins.map (x: builtins.toString x.out.name) old.nativeBuildInputs);
+            nativeBuildInputs =
+              old.nativeBuildInputs
+              ++ lib.optionals useLld [
+                llvmPackages.bintools
+              ];
 
-            # chmod u+w "$out/llvm/projects"
-            # cp -r ${vc-intrinsics.src} "$out/llvm/projects"
-          '';
-        in {
-          # inherit src;
-          src = src';
+            buildInputs =
+              old.buildInputs
+              ++ [
+                stdenv.cc.cc.lib
+                hwloc
 
-          # prev = throw (builtins.map (x: builtins.toString x.out.name) old.nativeBuildInputs);
-          nativeBuildInputs =
-            old.nativeBuildInputs
-            ++ lib.optionals useLld [
-              llvmPackages.bintools
-            ];
+                emhash
 
-          buildInputs =
-            old.buildInputs
-            ++ [
-              stdenv.cc.cc.lib
-              hwloc
+                zstd
+                zlib
+                libedit
+                # spirv-llvm-translator'
 
-              emhash
+                # vc-intrinsics
 
+                # For libspirv_dis
+                # spirv-tools
+
+                # overrides.xpti
+              ];
+            # ++ unified-runtime'.buildInputs;
+
+            propagatedBuildInputs = [
               zstd
               zlib
               libedit
-              # spirv-llvm-translator'
-
-              # vc-intrinsics
-
-              # For libspirv_dis
-              # spirv-tools
-
-              # overrides.xpti
+              #   hwloc
             ];
-          # ++ unified-runtime'.buildInputs;
 
-          propagatedBuildInputs = [
-            zstd
-            zlib
-            libedit
-            #   hwloc
-          ];
+            doCheck = false;
 
-          doCheck = false;
+            cmakeFlags =
+              old.cmakeFlags
+              ++ [
+                # Off to save build time, TODO: Reenable
+                # "-DLLVM_ENABLE_LTO=Thin"
 
-          cmakeFlags =
-            old.cmakeFlags
-            ++ [
-              # Off to save build time, TODO: Reenable
-              # "-DLLVM_ENABLE_LTO=Thin"
+                # TODO: Only enable conditionally
+                # Maybe conditional will cause issues with libclc (looking at buildbot/configure.py)
+                # ??
 
-              # TODO: Only enable conditionally
-              # Maybe conditional will cause issues with libclc (looking at buildbot/configure.py)
-              # ??
+                # # This cuts build time a bit but I'm unsure if this should be kept
+                # "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
 
-              # # This cuts build time a bit but I'm unsure if this should be kept
-              # "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
+                # "-DLLVM_EXTERNAL_VC_INTRINSICS_SOURCE_DIR=${vc-intrinsics.src}"
+                #"-DLLVM_EXTERNAL_PROJECTS=sycl;llvm-spirv;opencl;xpti;xptifw;libdevice;sycl-jit"
+                # "-DLLVM_EXTERNAL_PROJECTS=sycl;llvm-spirv"
+                # "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv"
+                # "-DLLVM_EXTERNAL_SYCL_SOURCE_DIR=/build/${src'.name}/sycl"
+                # "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/${src'.name}/llvm-spirv"
+                #"-DLLVM_EXTERNAL_XPTI_SOURCE_DIR=/build/${src'.name}/xpti"
+                #"-DXPTI_SOURCE_DIR=/build/${src'.name}/xpti"
+                #"-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${src'.name}/xptifw"
+                #"-DLLVM_EXTERNAL_LIBDEVICE_SOURCE_DIR=/build/${src'.name}/libdevice"
+                # "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${src'.name}/sycl-jit"
+                #"-DLLVM_ENABLE_PROJECTS=clang\;sycl\;llvm-spirv\;opencl\;xpti\;xptifw\;libdevice\;sycl-jit\;libclc\;lld"
+                # "-DLLVM_ENABLE_PROJECTS=llvm-spirv"
 
-              # "-DLLVM_EXTERNAL_VC_INTRINSICS_SOURCE_DIR=${vc-intrinsics.src}"
-              #"-DLLVM_EXTERNAL_PROJECTS=sycl;llvm-spirv;opencl;xpti;xptifw;libdevice;sycl-jit"
-              # "-DLLVM_EXTERNAL_PROJECTS=sycl;llvm-spirv"
-              # "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv"
-              # "-DLLVM_EXTERNAL_SYCL_SOURCE_DIR=/build/${src'.name}/sycl"
-              # "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/${src'.name}/llvm-spirv"
-              #"-DLLVM_EXTERNAL_XPTI_SOURCE_DIR=/build/${src'.name}/xpti"
-              #"-DXPTI_SOURCE_DIR=/build/${src'.name}/xpti"
-              #"-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${src'.name}/xptifw"
-              #"-DLLVM_EXTERNAL_LIBDEVICE_SOURCE_DIR=/build/${src'.name}/libdevice"
-              # "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${src'.name}/sycl-jit"
-              #"-DLLVM_ENABLE_PROJECTS=clang\;sycl\;llvm-spirv\;opencl\;xpti\;xptifw\;libdevice\;sycl-jit\;libclc\;lld"
-              # "-DLLVM_ENABLE_PROJECTS=llvm-spirv"
+                # These require clang, which we don't have at this point.
+                # TODO: Build these later, e.g. in passthru.tests
+                # "-DLLVM_SPIRV_INCLUDE_TESTS=OFF"
 
-              # These require clang, which we don't have at this point.
-              # TODO: Build these later, e.g. in passthru.tests
-              # "-DLLVM_SPIRV_INCLUDE_TESTS=OFF"
+                # "-DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=ON"
 
-              # "-DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=ON"
+                "-DLLVM_BUILD_TOOLS=ON"
 
-              "-DLLVM_BUILD_TOOLS=ON"
+                # "-DSYCL_ENABLE_XPTI_TRACING=ON"
+                # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
 
-              # "-DSYCL_ENABLE_XPTI_TRACING=ON"
-              # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
+                # "-DSYCL_INCLUDE_TESTS=ON"
 
-              # "-DSYCL_INCLUDE_TESTS=ON"
+                # "-DSYCL_ENABLE_WERROR=ON"
 
-              # "-DSYCL_ENABLE_WERROR=ON"
+                # # # Currently broken. IDK if this is even useful though.
+                # # "-DLLVM_USE_STATIC_ZSTD=ON"
 
-              # # # Currently broken. IDK if this is even useful though.
-              # # "-DLLVM_USE_STATIC_ZSTD=ON"
+                # "-DSYCL_ENABLE_EXTENSION_JIT=ON"
+                # "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
+                # "-DSYCL_ENABLE_WERROR=ON"
+                # "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
 
-              # "-DSYCL_ENABLE_EXTENSION_JIT=ON"
-              # "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
-              # "-DSYCL_ENABLE_WERROR=ON"
-              # "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
+                # (if pkgs.stdenv.cc.isClang then throw "hiii" else "")
+              ]
+              # ++ lib.optionals pkgs.stdenv.cc.isClang [
+              #   # (lib.cmakeFeature "CMAKE_C_FLAGS_RELEASE" "-flto=thin\\\\ -ffat-lto-objects")
+              #   # (lib.cmakeFeature "CMAKE_CXX_FLAGS_RELEASE" "-flto=thin\\\\ -ffat-lto-objects")
+              #   "-DCMAKE_C_FLAGS_RELEASE=-flto=thin -ffat-lto-objects"
+              #   "-DCMAKE_CXX_FLAGS_RELEASE=-flto=thin -ffat-lto-objects"
+              # ]
+              ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld")
+              # ++ unified-runtime'.cmakeFlags
+              # ++ ["-DUR_ENABLE_TRACING=OFF"]
+              ;
 
-              # (if pkgs.stdenv.cc.isClang then throw "hiii" else "")
-            ]
-            # ++ lib.optionals pkgs.stdenv.cc.isClang [
-            #   # (lib.cmakeFeature "CMAKE_C_FLAGS_RELEASE" "-flto=thin\\\\ -ffat-lto-objects")
-            #   # (lib.cmakeFeature "CMAKE_CXX_FLAGS_RELEASE" "-flto=thin\\\\ -ffat-lto-objects")
-            #   "-DCMAKE_C_FLAGS_RELEASE=-flto=thin -ffat-lto-objects"
-            #   "-DCMAKE_CXX_FLAGS_RELEASE=-flto=thin -ffat-lto-objects"
-            # ]
-            ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld")
-            # ++ unified-runtime'.cmakeFlags
-            # ++ ["-DUR_ENABLE_TRACING=OFF"]
-            ;
+            preConfigure =
+              old.preConfigure
+              + ''
+                # cmakeFlagsArray+=(
+                #   "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -march=skylake -mtune=znver3 -flto=thin -ffat-lto-objects"
+                #   "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -march=skylake -mtune=znver3 -flto=thin -ffat-lto-objects"
+                # )
+              '';
 
-          preConfigure =
-            old.preConfigure
-            + ''
-              # cmakeFlagsArray+=(
-              #   "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -march=skylake -mtune=znver3 -flto=thin -ffat-lto-objects"
-              #   "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -march=skylake -mtune=znver3 -flto=thin -ffat-lto-objects"
-              # )
-            '';
+            postInstall =
+              ''
+                # Check if the rogue include directory was created in $out
+                if [ -d $out/include ]; then
+                  # Move its contents to the correct destination
 
-          postInstall =
-            ''
-              # Check if the rogue include directory was created in $out
-              if [ -d $out/include ]; then
-                # Move its contents to the correct destination
+                  echo "searchmarker 123123123"
+                  echo ------------
+                  ${tree}/bin/tree $out
+                  echo ------------
+                  ${tree}/bin/tree $dev
+                  echo ------------
 
-                echo "searchmarker 123123123"
-                echo ------------
-                ${tree}/bin/tree $out
-                echo ------------
-                ${tree}/bin/tree $dev
-                echo ------------
+                  mv $out/include/LLVMSPIRVLib $dev/include/
+                  mv $out/include/llvm/ExecutionEngine/Interpreter/* $dev/include/llvm/ExecutionEngine/Interpreter/
+                  mv $out/include/llvm/SYCLLowerIR/* $dev/include/llvm/SYCLLowerIR/
 
-                mv $out/include/LLVMSPIRVLib $dev/include/
-                mv $out/include/llvm/ExecutionEngine/Interpreter/* $dev/include/llvm/ExecutionEngine/Interpreter/
-                mv $out/include/llvm/SYCLLowerIR/* $dev/include/llvm/SYCLLowerIR/
-
-                # Remove the now-empty directory so fixupPhase doesn't see it
-                rmdir $out/include/llvm/ExecutionEngine/Interpreter
-                rmdir $out/include/llvm/ExecutionEngine
-                rmdir $out/include/llvm/SYCLLowerIR
-                rmdir $out/include/llvm
-                rmdir $out/include
-              fi
-            ''
-            + (old.postInstall or "");
-          #
-          postFixup =
-            (old.postFixup or "")
-            + ''
-              #####################################
-              # Patch *.cmake and *.pc files
-              #####################################
-              find "$dev" -type f \( -name "*.cmake" -o -name "*.pc" \) | while read -r f; do
-                tmpf="$(mktemp)"
-                cp "$f" "$tmpf"
-
-                sed -i \
-                  -e 's|'"$out"'/include|'"$dev"'/include|g' \
-                  -e 's|''${_IMPORT_PREFIX}/include|'$dev'/include|g' \
-                  "$f"
-
-                if ! diff -q "$tmpf" "$f" >/dev/null; then
-                  echo "Changed: $f"
-                  diff -u "$tmpf" "$f" || true
+                  # Remove the now-empty directory so fixupPhase doesn't see it
+                  rmdir $out/include/llvm/ExecutionEngine/Interpreter
+                  rmdir $out/include/llvm/ExecutionEngine
+                  rmdir $out/include/llvm/SYCLLowerIR
+                  rmdir $out/include/llvm
+                  rmdir $out/include
                 fi
-
-                rm -f "$tmpf"
-              done || true
-
-              #####################################
-              # Patch executables in bin directory
-              #####################################
-              if [ -d "$dev/bin" ]; then
-                find "$dev/bin" -type f -executable | while read -r f; do
+              ''
+              + (old.postInstall or "");
+            #
+            postFixup =
+              (old.postFixup or "")
+              + ''
+                #####################################
+                # Patch *.cmake and *.pc files
+                #####################################
+                find "$dev" -type f \( -name "*.cmake" -o -name "*.pc" \) | while read -r f; do
                   tmpf="$(mktemp)"
                   cp "$f" "$tmpf"
 
                   sed -i \
                     -e 's|'"$out"'/include|'"$dev"'/include|g' \
-                    "$f" 2>/dev/null || true
+                    -e 's|''${_IMPORT_PREFIX}/include|'$dev'/include|g' \
+                    "$f"
 
                   if ! diff -q "$tmpf" "$f" >/dev/null; then
                     echo "Changed: $f"
@@ -435,396 +424,459 @@ in
 
                   rm -f "$tmpf"
                 done || true
-              fi          '';
+
+                #####################################
+                # Patch executables in bin directory
+                #####################################
+                if [ -d "$dev/bin" ]; then
+                  find "$dev/bin" -type f -executable | while read -r f; do
+                    tmpf="$(mktemp)"
+                    cp "$f" "$tmpf"
+
+                    sed -i \
+                      -e 's|'"$out"'/include|'"$dev"'/include|g' \
+                      "$f" 2>/dev/null || true
+
+                    if ! diff -q "$tmpf" "$f" >/dev/null; then
+                      echo "Changed: $f"
+                      diff -u "$tmpf" "$f" || true
+                    fi
+
+                    rm -f "$tmpf"
+                  done || true
+                fi          '';
+          }
+        );
+
+      llvm-no-spirv = llvmFinal.llvm-base.overrideAttrs (oldAttrs: {
+        postPatch =
+          oldAttrs.postPatch
+          + ''
+            rm -rf tools/spirv-to-ir-wrapper
+          '';
+      });
+
+      llvm-with-intree-spirv = llvmFinal.llvm-base.overrideAttrs (oldAttrs: {
+        cmakeFlags =
+          oldAttrs.cmakeFlags
+          ++ [
+            "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv"
+            "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/${oldAttrs.src.name}/llvm-spirv"
+
+            # These require clang, which we don't have at this point.
+            # TODO: Build these later, e.g. in passthru.tests
+            "-DLLVM_SPIRV_INCLUDE_TESTS=OFF"
+
+            "-DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=ON"
+          ];
+
+        buildInputs =
+          oldAttrs.buildInputs
+          ++ [
+            # For libspirv_dis
+            spirv-tools
+          ];
+      });
+
+      spirv-to-ir-wrapper = stdenv.mkDerivation (finalAttrs: {
+        pname = "spirv-to-ir-wrapper";
+        inherit version;
+
+        src = runCommand "spirv-to-ir-wrapper-src-${version}" {inherit (src) passthru;} ''
+          mkdir -p "$out"
+          cp -r ${src}/llvm/tools/spirv-to-ir-wrapper "$out"
+        '';
+
+        sourceRoot = "${finalAttrs.src.name}/spirv-to-ir-wrapper";
+
+        patches = [./patches/spirv-to-ir-wrapper.patch];
+
+        nativeBuildInputs = [
+          cmake
+          ninja
+          llvmFinal.llvm-no-spirv.dev
+          llvmFinal.spriv-llvm-translator.dev
+        ];
+        buildInputs = [
+          llvmFinal.llvm-no-spirv
+          llvmFinal.spriv-llvm-translator
+        ];
+      });
+
+      # llvm = symlinkJoin {
+      #   name = "llvm";
+      #   paths = [overrides.spirv-to-ir-wrapper overrides.llvm-no-spirv];
+      # };
+      # llvm = overrides.llvm-no-spirv;
+      # llvm = overrides.llvm-base;
+      libllvm = llvmFinal.llvm-with-intree-spirv;
+
+      opencl-aot = stdenv.mkDerivation (finalAttrs: {
+        pname = "opencl-aot";
+        inherit version;
+        src = runCommand "opencl-aot-src-${version}" {inherit (src) passthru;} ''
+          mkdir -p "$out"
+          cp -r ${src}/opencl "$out"
+          # cp -r ${src}/cmake "$out"
+
+          # mkdir -p "$out/cmake"
+          mkdir -p "$out/unified-runtime/cmake"
+          cp -r ${src}/unified-runtime/cmake/FetchOpenCL.cmake "$out/unified-runtime/cmake"
+        '';
+        # inherit src;
+        #
+        patches = [
+          ./patches/opencl.patch
+          # ./patches/opencl-aot.patch
+        ];
+
+        sourceRoot = "${finalAttrs.src.name}/opencl";
+        # sourceRoot = "${finalAttrs.src.name}/sycl";
+
+        # outputs = [
+        #   "out"
+        #   "dev"
+        #   "lib"
+        # ];
+
+        nativeBuildInputs = [
+          cmake
+          ninja
+        ];
+        buildInputs = [
+          llvmFinal.llvm
+          libffi
+          zstd
+          zlib
+          libxml2
+          opencl-headers
+          ocl-icd
+        ];
+
+        # nativeBuildInputs = [cmake ninja] ++ unified-runtime'.nativeBuildInputs;
+
+        # buildInputs = [overrides.xpti] ++ unified-runtime'.buildInputs;
+
+        cmakeFlags = [
+          # "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild'}"
+          # "-DCMAKE_MODULE_PATH=${finalAttrs.src}/cmake"
+          "-DLLVM_BUILD_TOOLS=ON"
+          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_OCL-HEADERS" "${deps.opencl-headers}")
+          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_OCL-ICD" "${deps.opencl-icd-loader}")
+        ];
+      });
+
+      libclc =
+        (llvmPrev.libclc.override {
+          buildLlvmTools = llvmFinal.buildLlvmTools;
+        }).overrideAttrs
+        (old: {
+          nativeBuildInputs =
+            builtins.filter (
+              x: lib.getName x != "SPIRV-LLVM-Translator"
+            )
+            old.nativeBuildInputs;
+
+          buildInputs =
+            old.buildInputs
+            ++ [
+              zstd
+              zlib
+              # Required by libclc-remangler
+              llvmFinal.clang.cc.dev
+            ];
+
+          cmakeFlags = [
+            # Otherwise it'll misdetect the unwrapped just-built compiler as the compiler to use,
+            # and configure will fail to compile a basic test program with it.
+            (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
+            (lib.cmakeFeature "LLVM_EXTERNAL_LIT" "${lit}/bin/lit")
+
+            "-DLLVM_BUILD_UTILS=ON"
+            "-DLLVM_INSTALL_UTILS=ON"
+
+            # (lib.cmakeBool "LIBCLC_GENERATE_REMANGLED_VARIANTS" false)
+          ];
+
+          patches =
+            [
+              (builtins.head old.patches)
+            ]
+            ++ [
+              ./patches/libclc-use-default-paths.patch
+              ./patches/libclc-remangler.patch
+              ./patches/libclc-find-clang.patch
+              ./patches/libclc-utils.patch
+            ];
+
+          preInstall = ''
+            # TODO: Figure out why this is needed
+            cp utils/prepare_builtins prepare_builtins
+          '';
+        });
+
+      vc-intrinsics = vc-intrinsics.override {
+        # llvmPackages_21 = llvmPkgs // overrides;
+      };
+
+      # spirv-llvm-translator = stdenv.mkDerivation (finalAttrs: {
+      spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (
+        oldAttrs: let
+          src' = runCommand "sycl-src-${version}" {inherit (src) passthru;} ''
+            mkdir -p "$out"
+            cp -r ${src}/llvm-spirv "$out"
+          '';
+        in {
+          # pname = "SPIRV-LLVM-Translator";
+          # inherit version;
+          src = src';
+          sourceRoot = "${src'.name}/llvm-spirv";
+
+          # nativeBuildInputs = [
+          #   pkg-config
+          #   cmake
+          #   llvmPackages.llvm.dev
+          # ];
         }
       );
 
-    llvm-no-spirv = llvmFinal.llvm-base.overrideAttrs (oldAttrs: {
-      postPatch =
-        oldAttrs.postPatch
-        + ''
-          rm -rf tools/spirv-to-ir-wrapper
-        '';
-    });
+      sycl = stdenv.mkDerivation (finalAttrs: {
+        pname = "sycl";
+        inherit version;
+        # src = runCommand "sycl-src-${version}" {inherit (src) passthru;} ''
+        #   mkdir -p "$out"
+        #   cp -r ${src}/sycl "$out"
+        #   cp -r ${src}/cmake "$out"
 
-    llvm-with-intree-spirv = llvmFinal.llvm-base.overrideAttrs (oldAttrs: {
-      cmakeFlags =
-        oldAttrs.cmakeFlags
-        ++ [
-          "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv"
-          "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/${oldAttrs.src.name}/llvm-spirv"
+        #   chmod u+w "$out/sycl"
+        #   cp -r ${src}/unified-runtime "$out/sycl"
 
-          # These require clang, which we don't have at this point.
-          # TODO: Build these later, e.g. in passthru.tests
-          "-DLLVM_SPIRV_INCLUDE_TESTS=OFF"
+        #   mkdir -p "$out/sycl/llvm/cmake"
+        #   cp -r ${src}/llvm/cmake/modules "$out/sycl/llvm/cmake/modules"
+        # '';
+        inherit src;
 
-          "-DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=ON"
+        patches = [
+          ./patches/sycl.patch
+          ./patches/sycl-build-ur.patch
+          # ./patches/sycl-incl.patch
+          # ./patches/unified-runtime.patch
+          # ./patches/unified-runtime-2.patch
         ];
+        # prePatch = ''
+        #   ls ../unified-runtime
+        #   cat ../unified-runtime/source/adapters/level_zero/common.cpp
+        # '';
+        # postPatch = ''
+        #   pushd ../unified-runtime
+        #   chmod -R u+w .
+        #   patch -p1 < ${./patches/unified-runtime.patch}
+        #   patch -p1 < ${./patches/unified-runtime-2.patch}
+        #   popd
+        # '';
 
-      buildInputs =
-        oldAttrs.buildInputs
-        ++ [
-          # For libspirv_dis
-          spirv-tools
-        ];
-    });
+        # sourceRoot = "${finalAttrs.src.name}/llvm";
+        sourceRoot = "${finalAttrs.src.name}/sycl";
 
-    spirv-to-ir-wrapper = stdenv.mkDerivation (finalAttrs: {
-      pname = "spirv-to-ir-wrapper";
-      inherit version;
-
-      src = runCommand "spirv-to-ir-wrapper-src-${version}" {inherit (src) passthru;} ''
-        mkdir -p "$out"
-        cp -r ${src}/llvm/tools/spirv-to-ir-wrapper "$out"
-      '';
-
-      sourceRoot = "${finalAttrs.src.name}/spirv-to-ir-wrapper";
-
-      patches = [./patches/spirv-to-ir-wrapper.patch];
-
-      nativeBuildInputs = [cmake ninja llvmFinal.llvm-no-spirv.dev llvmFinal.spriv-llvm-translator.dev];
-      buildInputs = [llvmFinal.llvm-no-spirv llvmFinal.spriv-llvm-translator];
-    });
-
-    # llvm = symlinkJoin {
-    #   name = "llvm";
-    #   paths = [overrides.spirv-to-ir-wrapper overrides.llvm-no-spirv];
-    # };
-    # llvm = overrides.llvm-no-spirv;
-    # llvm = overrides.llvm-base;
-    libllvm = llvmFinal.llvm-with-intree-spirv;
-
-    opencl-aot = stdenv.mkDerivation (finalAttrs: {
-      pname = "opencl-aot";
-      inherit version;
-      src = runCommand "opencl-aot-src-${version}" {inherit (src) passthru;} ''
-        mkdir -p "$out"
-        cp -r ${src}/opencl "$out"
-        # cp -r ${src}/cmake "$out"
-
-        # mkdir -p "$out/cmake"
-        mkdir -p "$out/unified-runtime/cmake"
-        cp -r ${src}/unified-runtime/cmake/FetchOpenCL.cmake "$out/unified-runtime/cmake"
-      '';
-      # inherit src;
-      #
-      patches = [
-        ./patches/opencl.patch
-        # ./patches/opencl-aot.patch
-      ];
-
-      sourceRoot = "${finalAttrs.src.name}/opencl";
-      # sourceRoot = "${finalAttrs.src.name}/sycl";
-
-      # outputs = [
-      #   "out"
-      #   "dev"
-      #   "lib"
-      # ];
-
-      nativeBuildInputs = [cmake ninja];
-      buildInputs = [llvmFinal.llvm libffi zstd zlib libxml2 opencl-headers ocl-icd];
-
-      # nativeBuildInputs = [cmake ninja] ++ unified-runtime'.nativeBuildInputs;
-
-      # buildInputs = [overrides.xpti] ++ unified-runtime'.buildInputs;
-
-      cmakeFlags = [
-        # "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild'}"
-        # "-DCMAKE_MODULE_PATH=${finalAttrs.src}/cmake"
-        "-DLLVM_BUILD_TOOLS=ON"
-        # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_OCL-HEADERS" "${deps.opencl-headers}")
-        # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_OCL-ICD" "${deps.opencl-icd-loader}")
-      ];
-    });
-
-    libclc =
-      (llvmPrev.libclc.override {
-        buildLlvmTools = llvmFinal.buildLlvmTools;
-      }).overrideAttrs (old: {
-        nativeBuildInputs = builtins.filter (x: lib.getName x != "SPIRV-LLVM-Translator") old.nativeBuildInputs;
+        nativeBuildInputs =
+          [
+            cmake
+            ninja
+            pkg-config
+          ]
+          ++ unified-runtime'.nativeBuildInputs;
 
         buildInputs =
-          old.buildInputs
-          ++ [
-            zstd
-            zlib
-            # Required by libclc-remangler
+          [
+            llvmFinal.xpti
+            llvmFinal.xptifw
+            # Might need to be propagated
+            llvmFinal.opencl-aot
+            llvmFinal.llvm
+            llvmFinal.clang
             llvmFinal.clang.cc.dev
-          ];
+            # overrides.vc-intrinsics
+            (zstd.override {enableStatic = true;})
+            zlib
 
-        cmakeFlags = [
-          # Otherwise it'll misdetect the unwrapped just-built compiler as the compiler to use,
-          # and configure will fail to compile a basic test program with it.
-          (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
-          (lib.cmakeFeature "LLVM_EXTERNAL_LIT" "${lit}/bin/lit")
+            emhash
+          ]
+          ++ (lib.optional (rocmSupport || cudaSupport) llvmFinal.libclc)
+          ++ (lib.optional rocmSupport llvmFinal.lld)
+          ++ unified-runtime'.buildInputs;
 
-          "-DLLVM_BUILD_UTILS=ON"
-          "-DLLVM_INSTALL_UTILS=ON"
+        # preBuild = ''
+        #   ${tree}/bin/tree
+        #   echo ----
+        #   ${tree}/bin/tree tools
+        # '';
+        #
+        # preConfigure = ''
+        #   chmod u+w .
+        #   mkdir -p build/include-build-dir
+        # '';
 
-          # (lib.cmakeBool "LIBCLC_GENERATE_REMANGLED_VARIANTS" false)
-        ];
+        cmakeFlags =
+          [
+            # Used to find unified-runtime folder (`LLVM_SOURCE_DIR/../unified-runtime`)
+            "-DLLVM_SOURCE_DIR=/build/${finalAttrs.src.name}/llvm"
+            # "-DUR_INTREE_SOURCE_DIR=/build/${finalAttrs.src.name}/unified-runtime"
+            # "-DSYCL_INCLUDE_BUILD_DIR=/build/${finalAttrs.src.name}/build/include-build-dir"
 
-        patches =
-          [(builtins.head old.patches)]
-          ++ [
-            ./patches/libclc-use-default-paths.patch
-            ./patches/libclc-remangler.patch
-            ./patches/libclc-find-clang.patch
-            ./patches/libclc-utils.patch
-          ];
+            (lib.cmakeFeature "LLVM_EXTERNAL_LIT" "${lit}/bin/lit")
 
-        preInstall = ''
-          # TODO: Figure out why this is needed
-          cp utils/prepare_builtins prepare_builtins
-        '';
+            # "-DLLVM_ENABLE_PROJECTS=sycl;opencl;xpti;xptifw;sycl-jit;libclc"
+            # "-DLLVM_ENABLE_PROJECTS=sycl;sycl-jit"
+
+            # "-DLLVM_EXTERNAL_PROJECTS=sycl;xpti;xptifw;sycl-jit"
+            "-DLLVM_EXTERNAL_XPTI_SOURCE_DIR=/build/${finalAttrs.src.name}/xpti"
+            "-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${finalAttrs.src.name}/xptifw"
+            "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${finalAttrs.src.name}/sycl-jit"
+
+            # "-DLLVM_USE_STATIC_ZSTD=OFF"
+
+            # TODO: Reenable!
+            "-DSYCL_ENABLE_XPTI_TRACING=OFF"
+            # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
+            "-DSYCL_ENABLE_BACKENDS=${lib.strings.concatStringsSep ";" unified-runtime'.backends}"
+
+            "-DLLVM_INCLUDE_TESTS=ON"
+            "-DSYCL_INCLUDE_TESTS=ON"
+
+            # "-DSYCL_ENABLE_WERROR=ON"
+
+            # TODO: REENABLE!
+            "-DSYCL_ENABLE_EXTENSION_JIT=OFF"
+            # "-DSYCL_ENABLE_EXTENSION_JIT=ON"
+            "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
+            "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
+
+            (lib.cmakeFeature "SYCL_COMPILER_VERSION" date)
+
+            (lib.cmakeBool "SYCL_UR_USE_FETCH_CONTENT" false)
+
+            # # Lookup broken
+            # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_EMHASH" "${deps.emhash}")
+          ]
+          ++ unified-runtime'.cmakeFlags;
       });
 
-    vc-intrinsics = vc-intrinsics.override {
-      # llvmPackages_21 = llvmPkgs // overrides;
-    };
+      libdevice = stdenv.mkDerivation (
+        finalAttrs: let
+          tools = symlinkJoin {
+            name = "libdevice-tools";
+            paths = [
+              llvmFinal.llvm
+              llvmFinal.clang
+              llvmFinal.clang-tools
+            ];
+            # # I think it wants unwrapped clang and wrapped clang++
+            # # but I'm not sure yet. TODO
+            postBuild = ''
+              rm $out/bin/clang
+              # ln -s ${llvmFinal.clang-unwrapped}/bin/clang $out/bin/clang
+              ln -s $out/bin/clang++ $out/bin/clang
+              ln -s ${llvmFinal.libclc}/bin/prepare_builtins $out/bin/prepare_builtins
+            '';
+          };
+        in {
+          pname = "libdevice";
+          inherit version;
 
-    # spirv-llvm-translator = stdenv.mkDerivation (finalAttrs: {
-    spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (oldAttrs: let
-      src' = runCommand "sycl-src-${version}" {inherit (src) passthru;} ''
-        mkdir -p "$out"
-        cp -r ${src}/llvm-spirv "$out"
-      '';
-    in {
-      # pname = "SPIRV-LLVM-Translator";
-      # inherit version;
-      src = src';
-      sourceRoot = "${src'.name}/llvm-spirv";
+          inherit src;
+          sourceRoot = "${finalAttrs.src.name}/libdevice";
 
-      # nativeBuildInputs = [
-      #   pkg-config
-      #   cmake
-      #   llvmPackages.llvm.dev
-      # ];
-    });
-
-    sycl = stdenv.mkDerivation (finalAttrs: {
-      pname = "sycl";
-      inherit version;
-      # src = runCommand "sycl-src-${version}" {inherit (src) passthru;} ''
-      #   mkdir -p "$out"
-      #   cp -r ${src}/sycl "$out"
-      #   cp -r ${src}/cmake "$out"
-
-      #   chmod u+w "$out/sycl"
-      #   cp -r ${src}/unified-runtime "$out/sycl"
-
-      #   mkdir -p "$out/sycl/llvm/cmake"
-      #   cp -r ${src}/llvm/cmake/modules "$out/sycl/llvm/cmake/modules"
-      # '';
-      inherit src;
-
-      patches = [
-        ./patches/sycl.patch
-        ./patches/sycl-build-ur.patch
-        # ./patches/sycl-incl.patch
-        # ./patches/unified-runtime.patch
-        # ./patches/unified-runtime-2.patch
-      ];
-      # prePatch = ''
-      #   ls ../unified-runtime
-      #   cat ../unified-runtime/source/adapters/level_zero/common.cpp
-      # '';
-      # postPatch = ''
-      #   pushd ../unified-runtime
-      #   chmod -R u+w .
-      #   patch -p1 < ${./patches/unified-runtime.patch}
-      #   patch -p1 < ${./patches/unified-runtime-2.patch}
-      #   popd
-      # '';
-
-      # sourceRoot = "${finalAttrs.src.name}/llvm";
-      sourceRoot = "${finalAttrs.src.name}/sycl";
-
-      nativeBuildInputs = [cmake ninja pkg-config] ++ unified-runtime'.nativeBuildInputs;
-
-      buildInputs =
-        [
-          llvmFinal.xpti
-          llvmFinal.xptifw
-          # Might need to be propagated
-          llvmFinal.opencl-aot
-          llvmFinal.llvm
-          llvmFinal.clang
-          llvmFinal.clang.cc.dev
-          # overrides.vc-intrinsics
-          (zstd.override {enableStatic = true;})
-          zlib
-
-          emhash
-        ]
-        ++ (lib.optional (rocmSupport || cudaSupport) llvmFinal.libclc)
-        ++ (lib.optional rocmSupport llvmFinal.lld)
-        ++ unified-runtime'.buildInputs;
-
-      # preBuild = ''
-      #   ${tree}/bin/tree
-      #   echo ----
-      #   ${tree}/bin/tree tools
-      # '';
-      #
-      # preConfigure = ''
-      #   chmod u+w .
-      #   mkdir -p build/include-build-dir
-      # '';
-
-      cmakeFlags =
-        [
-          # Used to find unified-runtime folder (`LLVM_SOURCE_DIR/../unified-runtime`)
-          "-DLLVM_SOURCE_DIR=/build/${finalAttrs.src.name}/llvm"
-          # "-DUR_INTREE_SOURCE_DIR=/build/${finalAttrs.src.name}/unified-runtime"
-          # "-DSYCL_INCLUDE_BUILD_DIR=/build/${finalAttrs.src.name}/build/include-build-dir"
-
-          (lib.cmakeFeature "LLVM_EXTERNAL_LIT" "${lit}/bin/lit")
-
-          # "-DLLVM_ENABLE_PROJECTS=sycl;opencl;xpti;xptifw;sycl-jit;libclc"
-          # "-DLLVM_ENABLE_PROJECTS=sycl;sycl-jit"
-
-          # "-DLLVM_EXTERNAL_PROJECTS=sycl;xpti;xptifw;sycl-jit"
-          "-DLLVM_EXTERNAL_XPTI_SOURCE_DIR=/build/${finalAttrs.src.name}/xpti"
-          "-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${finalAttrs.src.name}/xptifw"
-          "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${finalAttrs.src.name}/sycl-jit"
-
-          # "-DLLVM_USE_STATIC_ZSTD=OFF"
-
-          # TODO: Reenable!
-          "-DSYCL_ENABLE_XPTI_TRACING=OFF"
-          # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
-          "-DSYCL_ENABLE_BACKENDS=${lib.strings.concatStringsSep ";" unified-runtime'.backends}"
-
-          "-DLLVM_INCLUDE_TESTS=ON"
-          "-DSYCL_INCLUDE_TESTS=ON"
-
-          # "-DSYCL_ENABLE_WERROR=ON"
-
-          # TODO: REENABLE!
-          "-DSYCL_ENABLE_EXTENSION_JIT=OFF"
-          # "-DSYCL_ENABLE_EXTENSION_JIT=ON"
-          "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
-          "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
-
-          (lib.cmakeFeature "SYCL_COMPILER_VERSION" date)
-
-          (lib.cmakeBool "SYCL_UR_USE_FETCH_CONTENT" false)
-
-          # # Lookup broken
-          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_EMHASH" "${deps.emhash}")
-        ]
-        ++ unified-runtime'.cmakeFlags;
-    });
-
-    libdevice = stdenv.mkDerivation (finalAttrs: let
-      tools = symlinkJoin {
-        name = "libdevice-tools";
-        paths = [
-          llvmFinal.llvm
-          llvmFinal.clang
-          llvmFinal.clang-tools
-        ];
-        # # I think it wants unwrapped clang and wrapped clang++
-        # # but I'm not sure yet. TODO
-        postBuild = ''
-          rm $out/bin/clang
-          # ln -s ${llvmFinal.clang-unwrapped}/bin/clang $out/bin/clang
-          ln -s $out/bin/clang++ $out/bin/clang
-          ln -s ${llvmFinal.libclc}/bin/prepare_builtins $out/bin/prepare_builtins
-        '';
-      };
-    in {
-      pname = "libdevice";
-      inherit version;
-
-      inherit src;
-      sourceRoot = "${finalAttrs.src.name}/libdevice";
-
-      nativeBuildInputs = [cmake ninja tools];
-
-      buildInputs = [
-        llvmFinal.llvm
-        # llvmFinal.clang
-        # llvmFinal.clang-tools
-        llvmFinal.sycl
-      ];
-
-      patches = [
-        ./patches/libdevice.patch
-        ./patches/libdevice-sycllibdevice.patch
-      ];
-
-      hardeningDisable = ["zerocallusedregs"];
-
-      # NIX_CFLAGS_COMPILE = "-v";
-
-      ninjaFlags = ["-v"];
-
-      # preBuild = ''
-      #   type buildPhase
-      # '';
-      # preBuild = ''
-      #   type buildPhase
-      # '';
-
-      cmakeFlags = [
-        (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
-        "-DLLVM_TOOLS_DIR=${llvmFinal.llvm}/bin"
-        "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools}/bin"
-        # (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
-        # Despite being in libdevice, this flag is called LIBCLC_
-        "-DLIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR=${tools}/bin"
-        "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
-      ];
-    });
-
-    sycl-jit = stdenv.mkDerivation (finalAttrs: {
-      pname = "sycl-jit";
-      inherit version;
-
-      inherit src;
-
-      sourceRoot = "${finalAttrs.src.name}/sycl-jit";
-
-      nativeBuildInputs = [cmake ninja];
-
-      # buildInputs = [ llvm ];
-
-      # cmakeFlags = [
-      #   "-DSYCL_ENABLE_WERROR=ON"
-      #   "-DSYCL_ENABLE_EXTENSION_JIT=ON"
-      #   "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
-      #   "-DSYCL_ENABLE_WERROR=ON"
-      #   "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
-      # ];
-    });
-
-    libclang =
-      (llvmPrev.libclang.override {
-        buildLlvmTools = llvmFinal.buildLlvmTools;
-        # tblgen = llvmFinal.tblgen;
-      }).overrideAttrs (old: {
-        buildInputs =
-          (old.buildInputs or [])
-          ++ [
-            zstd
-            zlib
-            libedit
-            # overrides.llvm.dev
+          nativeBuildInputs = [
+            cmake
+            ninja
+            tools
           ];
 
-        postPatch =
-          ''
-            ${old.postPatch or ""}
+          buildInputs = [
+            llvmFinal.llvm
+            # llvmFinal.clang
+            # llvmFinal.clang-tools
+            llvmFinal.sycl
+          ];
 
-            substituteInPlace lib/Driver/CMakeLists.txt \
-                --replace-fail "DeviceConfigFile" ""
+          patches = [
+            ./patches/libdevice.patch
+            ./patches/libdevice-sycllibdevice.patch
+          ];
 
-          ''
-          + (lib.optionalString false
+          hardeningDisable = ["zerocallusedregs"];
+
+          # NIX_CFLAGS_COMPILE = "-v";
+
+          ninjaFlags = ["-v"];
+
+          # preBuild = ''
+          #   type buildPhase
+          # '';
+          # preBuild = ''
+          #   type buildPhase
+          # '';
+
+          cmakeFlags = [
+            (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
+            "-DLLVM_TOOLS_DIR=${llvmFinal.llvm}/bin"
+            "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools}/bin"
+            # (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
+            # Despite being in libdevice, this flag is called LIBCLC_
+            "-DLIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR=${tools}/bin"
+            "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
+          ];
+        }
+      );
+
+      sycl-jit = stdenv.mkDerivation (finalAttrs: {
+        pname = "sycl-jit";
+        inherit version;
+
+        inherit src;
+
+        sourceRoot = "${finalAttrs.src.name}/sycl-jit";
+
+        nativeBuildInputs = [
+          cmake
+          ninja
+        ];
+
+        # buildInputs = [ llvm ];
+
+        # cmakeFlags = [
+        #   "-DSYCL_ENABLE_WERROR=ON"
+        #   "-DSYCL_ENABLE_EXTENSION_JIT=ON"
+        #   "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
+        #   "-DSYCL_ENABLE_WERROR=ON"
+        #   "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
+        # ];
+      });
+
+      libclang =
+        (llvmPrev.libclang.override {
+          buildLlvmTools = llvmFinal.buildLlvmTools;
+          # tblgen = llvmFinal.tblgen;
+        }).overrideAttrs
+        (old: {
+          buildInputs =
+            (old.buildInputs or [])
+            ++ [
+              zstd
+              zlib
+              libedit
+              # overrides.llvm.dev
+            ];
+
+          postPatch =
             ''
+              ${old.postPatch or ""}
+
+              substituteInPlace lib/Driver/CMakeLists.txt \
+                  --replace-fail "DeviceConfigFile" ""
+
+            ''
+            + (lib.optionalString false ''
               # The findProgram calls in this file are often split across multiple lines.
               # Use sed to join them into a single line so that substituteInPlace can match them.
               # This handles cases where the line break is after '=' or after '('.
@@ -865,70 +917,71 @@ in
               #   clang/tools/clang-sycl-linker/ClangSYCLLinker.cpp
             '');
 
-        # cmakeFlags =
-        #   (old.cmakeFlags or [])
-        #   ++ [
-        #     (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
-        #     (lib.cmakeBool "FETCHCONTENT_QUIET" false)
+          # cmakeFlags =
+          #   (old.cmakeFlags or [])
+          #   ++ [
+          #     (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
+          #     (lib.cmakeBool "FETCHCONTENT_QUIET" false)
 
-        #     (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${deps.vc-intrinsics}")
-        #   ];
+          #     (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${deps.vc-intrinsics}")
+          #   ];
+        });
+
+      xpti = stdenv.mkDerivation (finalAttrs: {
+        pname = "xpti";
+        inherit version;
+
+        src = runCommand "xpti-src-${version}" {inherit (src) passthru;} ''
+          mkdir -p "$out"
+          cp -r ${src}/xpti "$out"
+        '';
+
+        sourceRoot = "${finalAttrs.src.name}/xpti";
+
+        nativeBuildInputs = [
+          cmake
+          ninja
+        ];
+
+        cmakeFlags = [
+          (lib.cmakeBool "XPTI_ENABLE_WERROR" true)
+        ];
       });
 
-    xpti = stdenv.mkDerivation (finalAttrs: {
-      pname = "xpti";
-      inherit version;
+      xptifw = stdenv.mkDerivation (finalAttrs: {
+        pname = "xptifw";
+        inherit version;
 
-      src = runCommand "xpti-src-${version}" {inherit (src) passthru;} ''
-        mkdir -p "$out"
-        cp -r ${src}/xpti "$out"
-      '';
+        src = runCommand "xptifw-src-${version}" {inherit (src) passthru;} ''
+          mkdir -p "$out"
+          cp -r ${src}/xptifw "$out"
 
-      sourceRoot = "${finalAttrs.src.name}/xpti";
+          mkdir -p "$out/sycl/cmake/modules"
+          cp ${src}/sycl/cmake/modules/FetchEmhash.cmake "$out/sycl/cmake/modules"
+        '';
 
-      nativeBuildInputs = [
-        cmake
-        ninja
-      ];
+        sourceRoot = "${finalAttrs.src.name}/xptifw";
 
-      cmakeFlags = [
-        (lib.cmakeBool "XPTI_ENABLE_WERROR" true)
-      ];
-    });
+        nativeBuildInputs = [
+          cmake
+          ninja
+        ];
 
-    xptifw = stdenv.mkDerivation (finalAttrs: {
-      pname = "xptifw";
-      inherit version;
+        buildInputs = [
+          parallel-hashmap
+          emhash
+          llvmFinal.xpti
+        ];
 
-      src = runCommand "xptifw-src-${version}" {inherit (src) passthru;} ''
-        mkdir -p "$out"
-        cp -r ${src}/xptifw "$out"
+        # TODO
+        cmakeFlags = [
+          # # Lookup broken
+          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_EMHASH" "${deps.emhash}")
+          # # Lookup not implemented
+          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_PARALLEL-HASHMAP" "${parallel-hashmap.src}")
 
-        mkdir -p "$out/sycl/cmake/modules"
-        cp ${src}/sycl/cmake/modules/FetchEmhash.cmake "$out/sycl/cmake/modules"
-      '';
-
-      sourceRoot = "${finalAttrs.src.name}/xptifw";
-
-      nativeBuildInputs = [
-        cmake
-        ninja
-      ];
-
-      buildInputs = [
-        parallel-hashmap
-        emhash
-        llvmFinal.xpti
-      ];
-
-      # TODO
-      cmakeFlags = [
-        # # Lookup broken
-        # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_EMHASH" "${deps.emhash}")
-        # # Lookup not implemented
-        # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_PARALLEL-HASHMAP" "${parallel-hashmap.src}")
-
-        (lib.cmakeBool "XPTI_ENABLE_WERROR" true)
-      ];
-    });
-  })
+          (lib.cmakeBool "XPTI_ENABLE_WERROR" true)
+        ];
+      });
+    }
+  )

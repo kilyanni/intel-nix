@@ -29,6 +29,7 @@
       // {
         inherit stdenv;
         unwrapped = llvm-unwrapped;
+        cc = llvm-wrapper;
         tests = callPackage ./tests.nix {inherit stdenv;};
       };
   };

@@ -1,4 +1,5 @@
 {
+  ccacheStdenv,
   lib,
   stdenv,
   fetchFromGitHub,
@@ -34,7 +35,7 @@
       builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets
     ),
   # TODO: Should there be a flag like config.levelZeroSupport?
-  levelZeroSupport ? true,
+  levelZeroSupport ? false,
   # The cudaSupport flag currently just sets this package to broken,
   # as CUDA support is currently not implemented in this derivation.
   # Upstream supports CUDA, so if a user of the derivation were to use this package
@@ -106,7 +107,8 @@
 in
   # Tip: This build plays nice with ccacheStdenv.
   #      Replace stdenv here to make debugging less tedious.
-  stdenv.mkDerivation (finalAttrs: {
+  ccacheStdenv.mkDerivation (finalAttrs: {
+    # stdenv.mkDerivation (finalAttrs: {
     pname = "intel-llvm";
     inherit version src;
 
@@ -302,6 +304,7 @@ in
         and SYCL support for heterogeneous computing across CPUs, GPUs, and FPGAs.
       '';
       homepage = "https://github.com/intel/llvm";
+      mainProgram = "clang";
       license = with licenses; [
         ncsa
         asl20

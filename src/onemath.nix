@@ -1,7 +1,8 @@
 {
   fetchFromGitHub,
   lib,
-  llvm,
+  intel-llvm,
+  ccacheIntelStdenv,
   cmake,
   ninja,
   mkl,
@@ -12,8 +13,10 @@
   useGenericBlas ? true,
 }: let
   version = "0.8";
+  stdenv = intel-llvm.stdenv;
+  # stdenv = ccacheIntelStdenv;
 in
-  llvm.stdenv.mkDerivation {
+  stdenv.mkDerivation {
     pname = "oneMath";
     version = version;
     src = fetchFromGitHub {

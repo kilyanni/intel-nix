@@ -1,6 +1,7 @@
 {
   fetchFromGitHub,
-  llvm,
+  intel-llvm,
+  ccacheIntelStdenv,
   cmake,
   ninja,
   oneDNN,
@@ -12,8 +13,10 @@
   ocl-icd,
 }: let
   version = "unstable-2025-09-19";
+  stdenv = intel-llvm.stdenv;
+  # stdenv = ccacheIntelStdenv;
 in
-  llvm.stdenv.mkDerivation {
+  stdenv.mkDerivation {
     pname = "whisper-cpp";
     inherit version;
 

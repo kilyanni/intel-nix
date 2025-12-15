@@ -65,32 +65,34 @@
   # FHS environment provides /usr/lib, /usr/include etc so the build can find system libs
   fhsEnv = buildFHSEnv {
     name = "intel-llvm-build-env";
-    targetPkgs = pkgs: (with pkgs;
-      [
-        cmake
-        ninja
-        python3
-        pkg-config
-        perl
-        tree
-        stdenv.cc
-        stdenv.cc.cc
-        stdenv.cc.cc.lib
-        zlib
-        zstd
-        hwloc
-        valgrind.dev
-        libxml2
-        libedit
-        level-zero
-        spirv-tools
-        sphinx
-        doxygen
-        emhash
-        parallel-hashmap
-      ]
-      ++ lib.optionals useLld [llvmPackages.bintools]
-      ++ unified-runtime'.buildInputs);
+    targetPkgs = pkgs: (
+      with pkgs;
+        [
+          cmake
+          ninja
+          python3
+          pkg-config
+          perl
+          tree
+          stdenv.cc
+          stdenv.cc.cc
+          stdenv.cc.cc.lib
+          zlib
+          zstd
+          hwloc
+          valgrind.dev
+          libxml2
+          libedit
+          level-zero
+          spirv-tools
+          sphinx
+          doxygen
+          emhash
+          parallel-hashmap
+        ]
+        ++ lib.optionals useLld [llvmPackages.bintools]
+        ++ unified-runtime'.buildInputs
+    );
   };
 in
   stdenv.mkDerivation (finalAttrs: {
@@ -104,18 +106,43 @@ in
       hash = "sha256-OhGnQ4uKd6q8smB0ue+k+dVzQpBwapWvfrzOFFfBOic=";
     };
 
-    outputs = ["out" "lib" "dev" "python"];
+    outputs = [
+      "out"
+      "lib"
+      "dev"
+      "python"
+    ];
 
     nativeBuildInputs =
-      [cmake ninja python3 pkg-config zlib zstd]
+      [
+        cmake
+        ninja
+        python3
+        pkg-config
+        zlib
+        zstd
+      ]
       ++ lib.optionals useLld [llvmPackages.bintools]
       ++ lib.optionals buildTests [perl];
 
     buildInputs =
-      [sphinx doxygen spirv-tools libxml2 valgrind.dev hwloc emhash parallel-hashmap]
+      [
+        sphinx
+        doxygen
+        spirv-tools
+        libxml2
+        valgrind.dev
+        hwloc
+        emhash
+        parallel-hashmap
+      ]
       ++ unified-runtime'.buildInputs;
 
-    propagatedBuildInputs = [zstd zlib libedit];
+    propagatedBuildInputs = [
+      zstd
+      zlib
+      libedit
+    ];
 
     cmakeBuildType = "Release";
 
@@ -253,7 +280,11 @@ in
     meta = with lib; {
       description = "Intel LLVM-based compiler with SYCL support (FHS build)";
       homepage = "https://github.com/intel/llvm";
-      license = with licenses; [ncsa asl20 llvm-exception];
+      license = with licenses; [
+        ncsa
+        asl20
+        llvm-exception
+      ];
       maintainers = with maintainers; [blenderfreaky];
       platforms = platforms.linux;
     };
