@@ -9,6 +9,9 @@
     # OpenCL needs to be passed through
     propagatedBuildInputs = old.propagatedBuildInputs ++ llvm-unwrapped.propagatedBuildInputs;
   });
+  clang-tools-wrapper = callPackage ./clang-tools.nix {
+    inherit llvm-unwrapped llvm-wrapper;
+  };
   # We merge everything into one by default to avoid issues with path-lookup.
   # intel-llvm provides the SYCL library, so unlike regular LLVM libraries,
   # its libraries are equally important as the compiler itself.
@@ -18,6 +21,8 @@
     paths = [
       # Order is important, we want files from the wrapper to take precedence
       llvm-wrapper
+      clang-tools-wrapper
+
       llvm-unwrapped
 
       llvm-unwrapped.dev
