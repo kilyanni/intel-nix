@@ -9,8 +9,14 @@
   tbb_2022,
   opencl-headers,
   oneMath-sycl-blas,
+  rocmPackages ? {},
   useMKL ? false,
   useGenericBlas ? true,
+  rocmSupport ? false,
+  rocmGpuTargets ?
+    lib.optionalString (rocmPackages != {}) (
+      builtins.concatStringsSep "," rocmPackages.clr.gpuTargets
+    ),
 }: let
   version = "0.8";
   stdenv = intel-llvm.stdenv;
@@ -37,48 +43,60 @@ in
         opencl-headers
       ]
       ++ lib.optionals useMKL [mkl]
-      ++ lib.optionals useGenericBlas [oneMath-sycl-blas];
+      ++ lib.optionals (useGenericBlas && !rocmSupport) [oneMath-sycl-blas]
+      ++ lib.optionals rocmSupport (with rocmPackages; [
+        clr # Provides HIP
+        rocblas
+        rocfft
+        rocsolver
+        rocrand
+        rocsparse
+      ]);
 
     hardeningDisable = [
-      "zerocallusedregs"
+      # "zerocallusedregs"
       "pacret"
-      # "shadowstack"
+      "shadowstack"
     ];
 
-    cmakeFlags = [
-      # (lib.cmakeFeature "CMAKE_C_COMPILER" "${llvm}/bin/clang")
-      # (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${llvm}/bin/clang++")
+    cmakeFlags =
+      [
+        # (lib.cmakeFeature "CMAKE_C_COMPILER" "${llvm}/bin/clang")
+        # (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${llvm}/bin/clang++")
 
-      # Requires closed source icpx + mkl
-      (lib.cmakeBool "ENABLE_MKLCPU_BACKEND" useMKL)
-      (lib.cmakeBool "ENABLE_MKLGPU_BACKEND" useMKL)
+        # Requires closed source icpx + mkl
+        (lib.cmakeBool "ENABLE_MKLCPU_BACKEND" useMKL)
+        (lib.cmakeBool "ENABLE_MKLGPU_BACKEND" useMKL)
 
-      (lib.cmakeBool "ENABLE_CUBLAS_BACKEND" false)
-      (lib.cmakeBool "ENABLE_CUSOLVER_BACKEND" false)
-      (lib.cmakeBool "ENABLE_CUFFT_BACKEND" false)
-      (lib.cmakeBool "ENABLE_CURAND_BACKEND" false)
-      (lib.cmakeBool "ENABLE_CUSPARSE_BACKEND" false)
+        (lib.cmakeBool "ENABLE_CUBLAS_BACKEND" false)
+        (lib.cmakeBool "ENABLE_CUSOLVER_BACKEND" false)
+        (lib.cmakeBool "ENABLE_CUFFT_BACKEND" false)
+        (lib.cmakeBool "ENABLE_CURAND_BACKEND" false)
+        (lib.cmakeBool "ENABLE_CUSPARSE_BACKEND" false)
 
-      (lib.cmakeBool "ENABLE_NETLIB_BACKEND" false)
+        (lib.cmakeBool "ENABLE_NETLIB_BACKEND" false)
 
-      (lib.cmakeBool "ENABLE_ARMPL_BACKEND" false)
-      (lib.cmakeBool "ENABLE_ARMPL_OMP" true)
-      (lib.cmakeBool "ENABLE_ARMPL_OPENRNG" false)
+        (lib.cmakeBool "ENABLE_ARMPL_BACKEND" false)
+        (lib.cmakeBool "ENABLE_ARMPL_OMP" true)
+        (lib.cmakeBool "ENABLE_ARMPL_OPENRNG" false)
 
-      (lib.cmakeBool "ENABLE_ROCBLAS_BACKEND" false)
-      (lib.cmakeBool "ENABLE_ROCFFT_BACKEND" false)
-      (lib.cmakeBool "ENABLE_ROCSOLVER_BACKEND" false)
-      (lib.cmakeBool "ENABLE_ROCRAND_BACKEND" false)
-      (lib.cmakeBool "ENABLE_ROCSPARSE_BACKEND" false)
+        (lib.cmakeBool "ENABLE_ROCBLAS_BACKEND" rocmSupport)
+        (lib.cmakeBool "ENABLE_ROCFFT_BACKEND" rocmSupport)
+        (lib.cmakeBool "ENABLE_ROCSOLVER_BACKEND" rocmSupport)
+        (lib.cmakeBool "ENABLE_ROCRAND_BACKEND" rocmSupport)
+        (lib.cmakeBool "ENABLE_ROCSPARSE_BACKEND" rocmSupport)
 
-      (lib.cmakeBool "ENABLE_MKLCPU_THREAD_TBB" true)
+        (lib.cmakeBool "ENABLE_MKLCPU_THREAD_TBB" true)
 
-      # Required onemath-sycl-blas
-      (lib.cmakeBool "ENABLE_GENERIC_BLAS_BACKEND" useGenericBlas)
+        # Required onemath-sycl-blas (cannot be used with rocblas)
+        (lib.cmakeBool "ENABLE_GENERIC_BLAS_BACKEND" (useGenericBlas && !rocmSupport))
 
-      (lib.cmakeBool "ENABLE_PORTFFT_BACKEND" false)
+        (lib.cmakeBool "ENABLE_PORTFFT_BACKEND" false)
 
-      (lib.cmakeBool "BUILD_FUNCTIONAL_TESTS" false)
-      (lib.cmakeBool "BUILD_EXAMPLES" false)
-    ];
+        (lib.cmakeBool "BUILD_FUNCTIONAL_TESTS" false)
+        (lib.cmakeBool "BUILD_EXAMPLES" false)
+      ]
+      ++ lib.optionals rocmSupport [
+        (lib.cmakeFeature "HIP_TARGETS" rocmGpuTargets)
+      ];
   }

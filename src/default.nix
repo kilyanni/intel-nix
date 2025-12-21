@@ -26,6 +26,9 @@
     intel-llvm = llvm;
     inherit oneMath-sycl-blas ccacheIntelStdenv;
   };
+  oneMath-rocm = oneMath.override {
+    rocmSupport = true;
+  };
   oneDNN = callPackage ./onednn.nix {
     intel-llvm = llvm;
     inherit ccacheIntelStdenv;
