@@ -1,14 +1,26 @@
 {
   callPackage,
-  wrapCC,
+  wrapCCWith,
   symlinkJoin,
   overrideCC,
+  lib,
 }: let
   llvm-unwrapped = callPackage ./monolithic-unwrapped.nix {};
-  llvm-wrapper = (wrapCC llvm-unwrapped).overrideAttrs (old: {
-    # OpenCL needs to be passed through
-    propagatedBuildInputs = old.propagatedBuildInputs ++ llvm-unwrapped.propagatedBuildInputs;
-  });
+  inherit (llvm-unwrapped) llvmMajorVersion;
+  llvm-wrapper =
+    (wrapCCWith {
+      cc = llvm-unwrapped;
+      # This is needed for tools like clang-scan-deps to find headers
+      extraBuildCommands = ''
+        rsrc="$out/resource-root"
+        mkdir "$rsrc"
+        echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
+        ln -s "${lib.getLib llvm-unwrapped}/lib/clang/${llvmMajorVersion}/include" "$rsrc"
+      '';
+    }).overrideAttrs (old: {
+      # OpenCL needs to be passed through
+      propagatedBuildInputs = old.propagatedBuildInputs ++ llvm-unwrapped.propagatedBuildInputs;
+    });
   clang-tools-wrapper = callPackage ./clang-tools.nix {
     inherit llvm-unwrapped llvm-wrapper;
   };
@@ -19,7 +31,7 @@
     inherit (llvm-unwrapped) pname version meta;
 
     paths = [
-      # Order is important, we want files from the wrapper to take precedence
+      # Order is important, we want files from the wrappers to take precedence
       llvm-wrapper
       clang-tools-wrapper
 

@@ -47,6 +47,7 @@
 }: let
   version = "unstable-2025-11-14";
   date = "20251114";
+  llvmMajorVersion = "22";
   src = fetchFromGitHub {
     owner = "intel";
     repo = "llvm";
@@ -70,13 +71,13 @@
       dontUnpack = true;
       installPhase = ''
         mkdir -p $out/bin
-        cat > $out/bin/clang-22 <<'EOF'
+        cat > $out/bin/clang-${llvmMajorVersion} <<'EOF'
         #!/bin/sh
-        exec "$NIX_BUILD_TOP/source/build/bin/clang-22" "$@"
+        exec "$NIX_BUILD_TOP/source/build/bin/clang-${llvmMajorVersion}" "$@"
         EOF
-        chmod +x $out/bin/clang-22
-        cp $out/bin/clang-22 $out/bin/clang
-        cp $out/bin/clang-22 $out/bin/clang++
+        chmod +x $out/bin/clang-${llvmMajorVersion}
+        cp $out/bin/clang-${llvmMajorVersion} $out/bin/clang
+        cp $out/bin/clang-${llvmMajorVersion} $out/bin/clang++
       '';
       passthru.isClang = true;
     }
@@ -172,7 +173,7 @@ in
       # usual nix cc-wrapper.
       # Since the compiler to be wrapped is not available at this point,
       # we use a stub that points to where it will be later on
-      # in `$NIX_BUILD_TOP/source/build/bin/clang-22`
+      # in `$NIX_BUILD_TOP/source/build/bin/clang-${llvmMajorVersion}`
       substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
         --replace-fail "\''${clang_exe}" "${ccWrapperStub}/bin/clang++"
 
@@ -252,7 +253,10 @@ in
         (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${vc-intrinsics}")
         (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
 
-        (lib.cmakeFeature "CLANG_RESOURCE_DIR" "lib/clang/22")
+        # Ideally, we'd set this to "${placeholder "lib"}/lib/clang/${clangMajorVersion}",
+        # however this breaks the libdevice build.
+        # Instead, we just deal with it in postInstall
+        (lib.cmakeFeature "CLANG_RESOURCE_DIR" "../lib/clang/${llvmMajorVersion}")
         (lib.cmakeFeature "LLVM_INSTALL_PACKAGE_DIR" "${placeholder "dev"}/lib/cmake/llvm")
 
         (lib.cmakeBool "LLVM_INCLUDE_DOCS" enableManpages)
@@ -298,6 +302,11 @@ in
         --replace-fail "$out/bin/llvm-config" "$dev/bin/llvm-config"
       substituteInPlace "$dev/lib/cmake/llvm/LLVMConfig.cmake" \
         --replace-fail 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}")' 'set(LLVM_BINARY_DIR "'"$lib"'")'
+
+      # As explained above, this lands in $out, but we want it in $lib and we need to fix it by hand.
+      moveToOutput "lib/clang/${llvmMajorVersion}" "$lib"
+      substituteInPlace "$dev/include/clang/Config/config.h" \
+        --replace-fail "../lib/clang/${llvmMajorVersion}" "$lib/lib/clang/${llvmMajorVersion}"
     '';
 
     meta = with lib; {
@@ -328,6 +337,8 @@ in
       # as well as nix tooling, such as the stdenv.
       # As above, ideally this would be LLVM 22, but for now, we use LLVM 21.
       baseLlvm = llvmPackages_21;
+
+      inherit llvmMajorVersion;
 
       updateScript = nix-update-script {};
 

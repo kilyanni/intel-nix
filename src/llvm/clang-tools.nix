@@ -10,7 +10,6 @@
   llvm-unwrapped,
   llvm-wrapper,
 }:
-
 stdenv.mkDerivation {
   pname = "intel-llvm-clang-tools";
   version = llvm-unwrapped.version;
@@ -20,7 +19,6 @@ stdenv.mkDerivation {
   # These are used in substituteAll for the wrapper script
   unwrapped = llvm-unwrapped;
   clang = llvm-wrapper;
-  resourceRoot = "${llvm-unwrapped}/lib/clang/22";
 
   installPhase = ''
     runHook preInstall
@@ -39,7 +37,9 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 
-  meta = llvm-unwrapped.meta // {
-    description = "Wrapped Intel LLVM clang tools with proper include paths";
-  };
+  meta =
+    llvm-unwrapped.meta
+    // {
+      description = "Wrapped Intel LLVM clang tools with proper include paths";
+    };
 }
