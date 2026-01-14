@@ -1,11 +1,19 @@
 {
   callPackage,
   ccacheStdenv,
+  stdenv,
+  newScope,
 }: rec {
-  llvm-monolithic = callPackage ./llvm/monolithic.nix {};
-  llvm-standalone = callPackage ./llvm/standalone.nix {};
+  # Main intel-llvm package using the new makeScope-based structure from nixpkgs
+  # Pass useCcache = true (default) to use ccacheStdenv for faster local rebuilds
+  llvm-monolithic = callPackage ./llvm/package.nix {
+    inherit newScope ccacheStdenv stdenv;
+    useCcache = true;
+  };
 
-  # llvm = llvm-standalone;
+  # Alternative builds (experimental/legacy)
+  llvm-standalone = callPackage ./llvm-alt/standalone.nix {};
+
   llvm = llvm-monolithic;
 
   ccacheIntelStdenv = ccacheStdenv.override {
