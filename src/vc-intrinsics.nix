@@ -5,7 +5,7 @@
   cmake,
   ninja,
   python3,
-  llvmPackages_21,
+  llvmPackages_22,
 }:
 stdenv.mkDerivation {
   pname = "vc-intrinsics";
@@ -24,14 +24,14 @@ stdenv.mkDerivation {
     ninja
     python3
   ];
-  # buildInputs = [ llvmPackages_21.libllvm.dev ];
+  # buildInputs = [ llvmPackages_22.libllvm.dev ];
 
   patches = [
     ./fix-vc-intrinsics-static-linking.patch
   ];
 
   cmakeFlags = [
-    (lib.cmakeFeature "LLVM_DIR" "${lib.getDev llvmPackages_21.llvm}/lib/cmake/llvm")
+    (lib.cmakeFeature "LLVM_DIR" "${lib.getDev llvmPackages_22.llvm}/lib/cmake/llvm")
     # (lib.cmakeBool "BUILD_EXTERNAL" true)
     (lib.cmakeBool "LLVM_LINK_LLVM_DYLIB" false)
   ];

@@ -3,7 +3,7 @@
   cmake,
   parallel-hashmap,
   ninja,
-  llvmPackages_21,
+  llvmPackages_22,
   callPackage,
   fetchFromGitHub,
   runCommand,
@@ -108,7 +108,7 @@
     substituteInPlace $out/unified-runtime/cmake/FetchOpenCL.cmake \
       --replace-fail "NO_CMAKE_PACKAGE_REGISTRY" ""
   '';
-  llvmPackages = llvmPackages_21;
+  llvmPackages = llvmPackages_22;
   # TODO
   hostTarget =
     {
@@ -139,13 +139,13 @@ in
     inherit stdenv;
     #inherit src;
 
-    version = "21.0.0-${srcOrig.rev}";
+    version = "22.0.0-${srcOrig.rev}";
 
     # officialRelease = {};
     officialRelease = null;
     gitRelease = {
       rev = srcOrig.rev;
-      rev-version = "21.0.0-unstable-2025-08-21";
+      rev-version = "22.0.0-unstable-2025-11-14";
     };
 
     monorepoSrc = src;
@@ -626,7 +626,7 @@ in
         });
 
       vc-intrinsics = vc-intrinsics.override {
-        # llvmPackages_21 = llvmPkgs // overrides;
+        # llvmPackages_22 = llvmPkgs // overrides;
       };
 
       # spirv-llvm-translator = stdenv.mkDerivation (finalAttrs: {

@@ -17,7 +17,7 @@
   level-zero,
   libxml2,
   libedit,
-  llvmPackages_21,
+  llvmPackages_22,
   callPackage,
   parallel-hashmap,
   spirv-headers,
@@ -45,7 +45,7 @@
   version = "unstable-2025-10-09";
   date = "20251009";
 
-  llvmPackages = llvmPackages_21;
+  llvmPackages = llvmPackages_22;
   stdenv = ccacheStdenv;
   deps = callPackage ./deps.nix {};
 
@@ -250,7 +250,7 @@ in
         (lib.cmakeBool "FETCHCONTENT_QUIET" false)
         (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${deps.vc-intrinsics}")
         (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
-        "-DCLANG_RESOURCE_DIR=lib/clang/21"
+        "-DCLANG_RESOURCE_DIR=lib/clang/22"
         (lib.cmakeFeature "LLVM_INSTALL_PACKAGE_DIR" "${placeholder "dev"}/lib/cmake/llvm")
       ]
       ++ unified-runtime'.cmakeFlags;
@@ -291,6 +291,6 @@ in
 
     passthru = {
       isClang = true;
-      baseLlvm = llvmPackages_21;
+      baseLlvm = llvmPackages_22;
     };
   })
