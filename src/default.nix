@@ -3,6 +3,7 @@
   ccacheStdenv,
   stdenv,
   newScope,
+  cudaPackages_13,
 }: rec {
   # Main intel-llvm package using the new makeScope-based structure from nixpkgs
   # Pass useCcache = true (default) to use ccacheStdenv for faster local rebuilds
@@ -37,8 +38,28 @@
   oneMath-rocm = oneMath.override {
     rocmSupport = true;
   };
+
+  # CUDA-enabled intel-llvm (generates PTX 8.8, requires CUDA 13+)
+  llvm-cuda = llvm-monolithic.overrideScope (final: prev: {
+    unwrapped = prev.unwrapped.override { cudaSupport = true; };
+  });
+
+  oneMath-cuda = callPackage ./onemath.nix {
+    intel-llvm = llvm-cuda;
+    cudaSupport = true;
+    cudaPackages = cudaPackages_13;
+    inherit oneMath-sycl-blas ccacheIntelStdenv;
+  };
+
   oneDNN = callPackage ./onednn.nix {
     intel-llvm = llvm;
+    inherit ccacheIntelStdenv;
+  };
+
+  oneDNN-cuda = callPackage ./onednn.nix {
+    intel-llvm = llvm-cuda;
+    cudaSupport = true;
+    cudaPackages = cudaPackages_13;
     inherit ccacheIntelStdenv;
   };
   oneapi-ck = callPackage ./oneapi-ck.nix {};
