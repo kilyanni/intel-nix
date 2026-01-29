@@ -35,6 +35,7 @@
   libcxx,
   strace,
   symlinkJoin,
+  ccacheStdenv,
   rocmPackages ? {},
   level-zero,
   levelZeroSupport ? true,
@@ -44,16 +45,16 @@
   rocmSupport ? false,
   rocmGpuTargets ? builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets,
   nativeCpuSupport ? false,
-  vulkanSupport ? true,
   useLibcxx ? false,
+  useCcache ? true,
   # This is a decent speedup over GNU ld
   useLld ? true,
   buildTests ? false,
   buildDocs ? false,
   buildMan ? false,
 }: let
-  version = "unstable-2025-09-04";
-  date = "20250904";
+  version = "unstable-2025-11-14";
+  date = "20251114";
   deps = callPackage ./deps.nix {};
   unified-runtime' = unified-runtime.override {
     inherit
@@ -63,7 +64,6 @@
       rocmSupport
       rocmGpuTargets
       nativeCpuSupport
-      vulkanSupport
       buildTests
       ;
   };
@@ -80,8 +80,8 @@
       owner = "intel";
       repo = "llvm";
       # tag = "v${version}";
-      rev = "61de220eccc56aa0f85e64f94d1fdd6383e186a1";
-      hash = "sha256-/Yd5w2dBFy+5OLECXJcmsjwRCN7aehOb7+C+QuiYSms=";
+      rev = "ab3dc98de0fd1ada9df12b138de1e1f8b715cc27";
+      hash = "sha256-oHk8kQVNsyC9vrOsDqVoFLYl2yMMaTgpQnAW9iHZLfE=";
     };
 
     patches = [
@@ -93,6 +93,10 @@
       })
       # Fix hardcoded paths for llvm-foreach and llvm-link in SYCL toolchain
       ./patches/sycl-path-lookup.patch
+      # Fix hardcoded install paths (CMAKE_INSTALL_LIBDIR, etc.)
+      ./patches/gnu-install-dirs.patch
+      # Prevent cyclic deps from bundled cmake files in sycl-jit
+      ./patches/sycl-jit-exclude-cmake-files.patch
     ];
   };
   src = runCommand "intel-llvm-src-fixed-${version}" {} ''
@@ -121,9 +125,15 @@
   targetsToBuild = "host;SPIRV;AMDGPU;NVPTX";
 
   stdenv =
-    if useLibcxx
-    then llvmPackages.libcxxStdenv
-    else llvmPackages.stdenv;
+    let
+      base =
+        if useLibcxx
+        then llvmPackages.libcxxStdenv
+        else llvmPackages.stdenv;
+    in
+      if useCcache
+      then ccacheStdenv.override {stdenv = base;}
+      else base;
 in
   (llvmPackages.override (_: {
     inherit stdenv;
