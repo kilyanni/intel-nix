@@ -14,7 +14,7 @@ index 25d437f46f20..400633df95e5 100644
  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
  include(AddSYCLExecutable)
  include(AddSYCL)
-@@ -142,13 +147,14 @@ endif()
+@@ -142,13 +147,13 @@ endif()
  set(CLANG_VERSION "${CLANG_VERSION_MAJOR}.${CLANG_VERSION_MINOR}.${CLANG_VERSION_PATCHLEVEL}")
  
  set(SYCL_INCLUDE_DIR "include")
@@ -29,7 +29,6 @@ index 25d437f46f20..400633df95e5 100644
 -endif()
 +# TODO: I'm unsure whether this will just link to regular OpenCL since both are present
 +find_package(OpenCL REQUIRED)
-+message(OpenCL_INCLUDE_DIR)
 +# Ensure we actually have opencl-aot and not just regular OpenCL
 +find_program(OPENCL_AOT_EXECUTABLE NAMES opencl-aot REQUIRED)
  

@@ -19,7 +19,7 @@ index c3388fee6cc8..e807073e5be0 100644
  set(UR_INTREE_SOURCE_DIR "${LLVM_SOURCE_DIR}/../unified-runtime")
  cmake_path(NORMAL_PATH UR_INTREE_SOURCE_DIR OUTPUT_VARIABLE UR_INTREE_SOURCE_DIR)
  
-@@ -35,20 +40,23 @@ if(NOT EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR})
+@@ -35,20 +40,22 @@ if(NOT EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR})
    get_host_tool_path(sycl-post-link SYCL_POST_LINK sycl-post-link_exe sycl-post-link_target)
    get_host_tool_path(llvm-link LLVM_LINK llvm-link_exe llvm-link_target)
  else()
@@ -29,8 +29,6 @@ index c3388fee6cc8..e807073e5be0 100644
        PATHS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
      set(${tool}_exe ${LLVM_CUSTOM_TOOL_${tool}})
      set(${tool}_target)
-+
-+    message("Found ${tool} at ${${tool}_exe}")
    endforeach()
  endif()
  

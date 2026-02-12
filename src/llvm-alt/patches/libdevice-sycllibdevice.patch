@@ -20,20 +20,17 @@ index cd9afa88506b..c267e7e755e5 100644
  
  set(filetypes obj obj-new-offload spv bc)
  set(filetypes_no_spv obj obj-new-offload bc)
-@@ -215,6 +219,7 @@ function(link_bc)
+@@ -215,6 +219,6 @@ function(link_bc)
      set( link_flags --internalize --only-needed )
    endif()
- 
-+  message("abc ${ARG_TARGET} def ${llvm-link_exe}")
+
    add_custom_command(
      OUTPUT ${ARG_TARGET}.bc
      COMMAND ${llvm-link_exe} ${link_flags} -o ${ARG_TARGET}.bc ${LINK_INPUT_ARG}
-@@ -258,6 +263,8 @@ function(process_bc out_file)
+@@ -258,6 +262,6 @@ function(process_bc out_file)
  
    set( builtins_opt_lib $<TARGET_PROPERTY:${ARG_LIB_TGT},TARGET_FILE> )
- 
-+  message("abc ${out_file} def ${prepare_builtins_exe}")
-+
+
    # Add prepare target
    # FIXME: prepare_builtins_exe comes from having included libclc before this.
    # This is brittle.

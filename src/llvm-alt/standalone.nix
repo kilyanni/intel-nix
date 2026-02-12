@@ -20,7 +20,6 @@
   vc-intrinsics,
   emhash,
   libedit,
-  tree,
   wrapCCWith,
   overrideCC,
   intel-compute-runtime,
@@ -29,11 +28,9 @@
   ocl-icd,
   spirv-llvm-translator,
   pkg-config,
-  emptyDirectory,
   lit,
   # TODO: llvmPackages.libcxx? libcxxStdenv?
   libcxx,
-  strace,
   symlinkJoin,
   ccacheStdenv,
   rocmPackages ? {},
@@ -67,14 +64,6 @@
       ;
   };
   srcOrig = applyPatches {
-    # src = fetchFromGitHub {
-    #   owner = "intel";
-    #   repo = "llvm";
-    #   # tag = "v${version}";
-    #   rev = "64928c5154d7a0d8b5f03e7771ce7411d14fea20";
-    #   hash = "sha256-WTxZre8cpOQjR2K8TX3ygZxn5Math0ofs+l499RsgsI=";
-    # };
-
     src = fetchFromGitHub {
       owner = "intel";
       repo = "llvm";
@@ -129,11 +118,9 @@
 in
   (llvmPackages.override (_: {
     inherit stdenv;
-    #inherit src;
 
     version = "22.0.0-${srcOrig.rev}";
 
-    # officialRelease = {};
     officialRelease = null;
     gitRelease = {
       rev = srcOrig.rev;
@@ -143,8 +130,6 @@ in
     monorepoSrc = src;
 
     doCheck = false;
-
-    # enableSharedLibraries = false;
 
     # Not all projects need all these flags,
     # but I don't think it hurts to always include them.
@@ -157,14 +142,7 @@ in
       "-DLLVM_ENABLE_ZLIB=FORCE_ON"
       "-DLLVM_ENABLE_THREADS=ON"
 
-      # Breaks tablegen build somehow
-      # "-DLLVM_ENABLE_LTO=Thin"
-      # "-DCMAKE_AR=${llvmPackages.bintools}/bin/ranlib"
-      # "-DCMAKE_STRIP=${llvmPackages.bintools}/bin/ranlib"
-      # "-DCMAKE_RANLIB=${llvmPackages.bintools}/bin/ranlib"
-
       (lib.cmakeBool "BUILD_SHARED_LIBS" false)
-      # # TODO: configure fails when these are true, but I've no idea why
       # NOTE: Fails with buildbot/configure.py as well when these are set
       (lib.cmakeBool "LLVM_LINK_LLVM_DYLIB" false)
       (lib.cmakeBool "LLVM_BUILD_LLVM_DYLIB" false)
@@ -222,13 +200,6 @@ in
       stdenv = llvmPrev.stdenv.override {
         cc = llvmFinal.merged;
       };
-      #stdenv = llvmPrev.stdenv.overrideAttrs (old: {
-      #  propagatedBuildInputs =
-      #    old.propagatedBuildInputs
-      #    ++ [
-      #      llvmFinal.merged
-      #    ];
-      #});
 
       # Synthetic, not to be built directly
       llvm-base =
@@ -245,16 +216,11 @@ in
               cp -r ${src}/sycl "$out"
               cp -r ${src}/sycl-jit "$out"
               cp -r ${src}/llvm-spirv "$out"
-              # cp -r ${src}/unified-runtime "$out"
 
               chmod u+w "$out/llvm/tools"
               cp -r ${src}/polly "$out/llvm/tools"
-
-              # chmod u+w "$out/llvm/projects"
-              # cp -r ${vc-intrinsics.src} "$out/llvm/projects"
             '';
           in {
-            # inherit src;
             src = src';
 
             # gnu-install-dirs is already applied at the monorepo level (srcOrig)
@@ -263,7 +229,6 @@ in
               (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
               old.patches;
 
-            # prev = throw (builtins.map (x: builtins.toString x.out.name) old.nativeBuildInputs);
             nativeBuildInputs =
               old.nativeBuildInputs
               ++ lib.optionals useLld [
@@ -281,22 +246,12 @@ in
                 zstd
                 zlib
                 libedit
-                # spirv-llvm-translator'
-
-                # vc-intrinsics
-
-                # For libspirv_dis
-                # spirv-tools
-
-                # overrides.xpti
               ];
-            # ++ unified-runtime'.buildInputs;
 
             propagatedBuildInputs = [
               zstd
               zlib
               libedit
-              #   hwloc
             ];
 
             doCheck = false;
@@ -304,77 +259,12 @@ in
             cmakeFlags =
               old.cmakeFlags
               ++ [
-                # Off to save build time, TODO: Reenable
-                # "-DLLVM_ENABLE_LTO=Thin"
-
-                # TODO: Only enable conditionally
-                # Maybe conditional will cause issues with libclc (looking at buildbot/configure.py)
-                # ??
-
-                # # This cuts build time a bit but I'm unsure if this should be kept
-                # "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
-
-                # "-DLLVM_EXTERNAL_VC_INTRINSICS_SOURCE_DIR=${vc-intrinsics.src}"
-                #"-DLLVM_EXTERNAL_PROJECTS=sycl;llvm-spirv;opencl;xpti;xptifw;libdevice;sycl-jit"
-                # "-DLLVM_EXTERNAL_PROJECTS=sycl;llvm-spirv"
-                # "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv"
-                # "-DLLVM_EXTERNAL_SYCL_SOURCE_DIR=/build/${src'.name}/sycl"
-                # "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/${src'.name}/llvm-spirv"
-                #"-DLLVM_EXTERNAL_XPTI_SOURCE_DIR=/build/${src'.name}/xpti"
-                #"-DXPTI_SOURCE_DIR=/build/${src'.name}/xpti"
-                #"-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${src'.name}/xptifw"
-                #"-DLLVM_EXTERNAL_LIBDEVICE_SOURCE_DIR=/build/${src'.name}/libdevice"
-                # "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${src'.name}/sycl-jit"
-                #"-DLLVM_ENABLE_PROJECTS=clang\;sycl\;llvm-spirv\;opencl\;xpti\;xptifw\;libdevice\;sycl-jit\;libclc\;lld"
-                # "-DLLVM_ENABLE_PROJECTS=llvm-spirv"
-
-                # These require clang, which we don't have at this point.
-                # TODO: Build these later, e.g. in passthru.tests
-                # "-DLLVM_SPIRV_INCLUDE_TESTS=OFF"
-
-                # "-DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=ON"
-
                 "-DLLVM_BUILD_TOOLS=ON"
 
                 # Disable benchmark to avoid C2y extension errors with __COUNTER__ in benchmark.h
                 "-DLLVM_INCLUDE_BENCHMARKS=OFF"
-
-                # "-DSYCL_ENABLE_XPTI_TRACING=ON"
-                # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
-
-                # "-DSYCL_INCLUDE_TESTS=ON"
-
-                # "-DSYCL_ENABLE_WERROR=ON"
-
-                # # # Currently broken. IDK if this is even useful though.
-                # # "-DLLVM_USE_STATIC_ZSTD=ON"
-
-                # "-DSYCL_ENABLE_EXTENSION_JIT=ON"
-                # "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
-                # "-DSYCL_ENABLE_WERROR=ON"
-                # "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
-
-                # (if pkgs.stdenv.cc.isClang then throw "hiii" else "")
               ]
-              # ++ lib.optionals pkgs.stdenv.cc.isClang [
-              #   # (lib.cmakeFeature "CMAKE_C_FLAGS_RELEASE" "-flto=thin\\\\ -ffat-lto-objects")
-              #   # (lib.cmakeFeature "CMAKE_CXX_FLAGS_RELEASE" "-flto=thin\\\\ -ffat-lto-objects")
-              #   "-DCMAKE_C_FLAGS_RELEASE=-flto=thin -ffat-lto-objects"
-              #   "-DCMAKE_CXX_FLAGS_RELEASE=-flto=thin -ffat-lto-objects"
-              # ]
-              ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld")
-              # ++ unified-runtime'.cmakeFlags
-              # ++ ["-DUR_ENABLE_TRACING=OFF"]
-              ;
-
-            preConfigure =
-              old.preConfigure
-              + ''
-                # cmakeFlagsArray+=(
-                #   "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -march=skylake -mtune=znver3 -flto=thin -ffat-lto-objects"
-                #   "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -march=skylake -mtune=znver3 -flto=thin -ffat-lto-objects"
-                # )
-              '';
+              ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld");
 
             postInstall =
               ''
@@ -385,7 +275,7 @@ in
                 fi
               ''
               + (old.postInstall or "");
-            #
+
             postFixup =
               (old.postFixup or "")
               + ''
@@ -479,20 +369,14 @@ in
           cmake
           ninja
           llvmFinal.llvm-no-spirv.dev
-          llvmFinal.spriv-llvm-translator.dev
+          llvmFinal.spirv-llvm-translator.dev
         ];
         buildInputs = [
           llvmFinal.llvm-no-spirv
-          llvmFinal.spriv-llvm-translator
+          llvmFinal.spirv-llvm-translator
         ];
       });
 
-      # llvm = symlinkJoin {
-      #   name = "llvm";
-      #   paths = [overrides.spirv-to-ir-wrapper overrides.llvm-no-spirv];
-      # };
-      # llvm = overrides.llvm-no-spirv;
-      # llvm = overrides.llvm-base;
       libllvm = llvmFinal.llvm-with-intree-spirv;
 
       opencl-aot = stdenv.mkDerivation (finalAttrs: {
@@ -501,27 +385,16 @@ in
         src = runCommand "opencl-aot-src-${version}" {inherit (src) passthru;} ''
           mkdir -p "$out"
           cp -r ${src}/opencl "$out"
-          # cp -r ${src}/cmake "$out"
 
-          # mkdir -p "$out/cmake"
           mkdir -p "$out/unified-runtime/cmake"
           cp -r ${src}/unified-runtime/cmake/FetchOpenCL.cmake "$out/unified-runtime/cmake"
         '';
-        # inherit src;
-        #
+
         patches = [
           ./patches/opencl.patch
-          # ./patches/opencl-aot.patch
         ];
 
         sourceRoot = "${finalAttrs.src.name}/opencl";
-        # sourceRoot = "${finalAttrs.src.name}/sycl";
-
-        # outputs = [
-        #   "out"
-        #   "dev"
-        #   "lib"
-        # ];
 
         nativeBuildInputs = [
           cmake
@@ -537,16 +410,8 @@ in
           ocl-icd
         ];
 
-        # nativeBuildInputs = [cmake ninja] ++ unified-runtime'.nativeBuildInputs;
-
-        # buildInputs = [overrides.xpti] ++ unified-runtime'.buildInputs;
-
         cmakeFlags = [
-          # "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild'}"
-          # "-DCMAKE_MODULE_PATH=${finalAttrs.src}/cmake"
           "-DLLVM_BUILD_TOOLS=ON"
-          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_OCL-HEADERS" "${deps.opencl-headers}")
-          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_OCL-ICD" "${deps.opencl-icd-loader}")
         ];
       });
 
@@ -579,8 +444,6 @@ in
 
             # Intel's fork doesn't set LIBCLC_INSTALL_DIR for standalone builds (upstream does)
             "-DLIBCLC_INSTALL_DIR=share/clc"
-
-            # (lib.cmakeBool "LIBCLC_GENERATE_REMANGLED_VARIANTS" false)
           ];
 
           # Drop all nixpkgs patches (gnu-install-dirs is pre-applied at monorepo level,
@@ -598,67 +461,30 @@ in
           '';
         });
 
-      vc-intrinsics = vc-intrinsics.override {
-        # llvmPackages_22 = llvmPkgs // overrides;
-      };
+      vc-intrinsics = vc-intrinsics.override {};
 
-      # spirv-llvm-translator = stdenv.mkDerivation (finalAttrs: {
       spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (
         oldAttrs: let
-          src' = runCommand "sycl-src-${version}" {inherit (src) passthru;} ''
+          src' = runCommand "spirv-llvm-translator-src-${version}" {inherit (src) passthru;} ''
             mkdir -p "$out"
             cp -r ${src}/llvm-spirv "$out"
           '';
         in {
-          # pname = "SPIRV-LLVM-Translator";
-          # inherit version;
           src = src';
           sourceRoot = "${src'.name}/llvm-spirv";
-
-          # nativeBuildInputs = [
-          #   pkg-config
-          #   cmake
-          #   llvmPackages.llvm.dev
-          # ];
         }
       );
 
       sycl = stdenv.mkDerivation (finalAttrs: {
         pname = "sycl";
         inherit version;
-        # src = runCommand "sycl-src-${version}" {inherit (src) passthru;} ''
-        #   mkdir -p "$out"
-        #   cp -r ${src}/sycl "$out"
-        #   cp -r ${src}/cmake "$out"
-
-        #   chmod u+w "$out/sycl"
-        #   cp -r ${src}/unified-runtime "$out/sycl"
-
-        #   mkdir -p "$out/sycl/llvm/cmake"
-        #   cp -r ${src}/llvm/cmake/modules "$out/sycl/llvm/cmake/modules"
-        # '';
         inherit src;
 
         patches = [
           ./patches/sycl.patch
           ./patches/sycl-build-ur.patch
-          # ./patches/sycl-incl.patch
-          # ./patches/unified-runtime.patch
-          # ./patches/unified-runtime-2.patch
         ];
-        # prePatch = ''
-        #   ls ../unified-runtime
-        #   cat ../unified-runtime/source/adapters/level_zero/common.cpp
-        # '';
-        # postPatch = ''
-        #   pushd ../unified-runtime
-        #   chmod -R u+w .
-        #   patch -p1 < ${./patches/unified-runtime.patch}
-        #   patch -p1 < ${./patches/unified-runtime-2.patch}
-        #   popd
-        # '';
 
-        # sourceRoot = "${finalAttrs.src.name}/llvm";
         sourceRoot = "${finalAttrs.src.name}/sycl";
 
         nativeBuildInputs =
@@ -678,7 +504,6 @@ in
             llvmFinal.llvm
             llvmFinal.clang
             llvmFinal.clang.cc.dev
-            # overrides.vc-intrinsics
             (zstd.override {enableStatic = true;})
             zlib
 
@@ -688,58 +513,32 @@ in
           ++ (lib.optional rocmSupport llvmFinal.lld)
           ++ unified-runtime'.buildInputs;
 
-        # preBuild = ''
-        #   ${tree}/bin/tree
-        #   echo ----
-        #   ${tree}/bin/tree tools
-        # '';
-        #
-        # preConfigure = ''
-        #   chmod u+w .
-        #   mkdir -p build/include-build-dir
-        # '';
-
         cmakeFlags =
           [
             # Used to find unified-runtime folder (`LLVM_SOURCE_DIR/../unified-runtime`)
             "-DLLVM_SOURCE_DIR=/build/${finalAttrs.src.name}/llvm"
-            # "-DUR_INTREE_SOURCE_DIR=/build/${finalAttrs.src.name}/unified-runtime"
-            # "-DSYCL_INCLUDE_BUILD_DIR=/build/${finalAttrs.src.name}/build/include-build-dir"
 
             (lib.cmakeFeature "LLVM_EXTERNAL_LIT" "${lit}/bin/lit")
 
-            # "-DLLVM_ENABLE_PROJECTS=sycl;opencl;xpti;xptifw;sycl-jit;libclc"
-            # "-DLLVM_ENABLE_PROJECTS=sycl;sycl-jit"
-
-            # "-DLLVM_EXTERNAL_PROJECTS=sycl;xpti;xptifw;sycl-jit"
             "-DLLVM_EXTERNAL_XPTI_SOURCE_DIR=/build/${finalAttrs.src.name}/xpti"
             "-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${finalAttrs.src.name}/xptifw"
             "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${finalAttrs.src.name}/sycl-jit"
 
-            # "-DLLVM_USE_STATIC_ZSTD=OFF"
-
             # TODO: Reenable!
             "-DSYCL_ENABLE_XPTI_TRACING=OFF"
-            # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
             "-DSYCL_ENABLE_BACKENDS=${lib.strings.concatStringsSep ";" unified-runtime'.backends}"
 
             "-DLLVM_INCLUDE_TESTS=ON"
             "-DSYCL_INCLUDE_TESTS=ON"
 
-            # "-DSYCL_ENABLE_WERROR=ON"
-
             # TODO: REENABLE!
             "-DSYCL_ENABLE_EXTENSION_JIT=OFF"
-            # "-DSYCL_ENABLE_EXTENSION_JIT=ON"
             "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
             "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
 
             (lib.cmakeFeature "SYCL_COMPILER_VERSION" date)
 
             (lib.cmakeBool "SYCL_UR_USE_FETCH_CONTENT" false)
-
-            # # Lookup broken
-            # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_EMHASH" "${deps.emhash}")
           ]
           ++ unified-runtime'.cmakeFlags;
       });
@@ -753,11 +552,8 @@ in
               llvmFinal.clang
               llvmFinal.clang-tools
             ];
-            # # I think it wants unwrapped clang and wrapped clang++
-            # # but I'm not sure yet. TODO
             postBuild = ''
               rm $out/bin/clang
-              # ln -s ${llvmFinal.clang-unwrapped}/bin/clang $out/bin/clang
               ln -s $out/bin/clang++ $out/bin/clang
               ln -s ${llvmFinal.libclc}/bin/prepare_builtins $out/bin/prepare_builtins
             '';
@@ -777,8 +573,6 @@ in
 
           buildInputs = [
             llvmFinal.llvm
-            # llvmFinal.clang
-            # llvmFinal.clang-tools
             llvmFinal.sycl
           ];
 
@@ -789,22 +583,12 @@ in
 
           hardeningDisable = ["zerocallusedregs"];
 
-          # NIX_CFLAGS_COMPILE = "-v";
-
           ninjaFlags = ["-v"];
-
-          # preBuild = ''
-          #   type buildPhase
-          # '';
-          # preBuild = ''
-          #   type buildPhase
-          # '';
 
           cmakeFlags = [
             (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
             "-DLLVM_TOOLS_DIR=${llvmFinal.llvm}/bin"
             "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools}/bin"
-            # (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
             # Despite being in libdevice, this flag is called LIBCLC_
             "-DLIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR=${tools}/bin"
             "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
@@ -824,16 +608,6 @@ in
           cmake
           ninja
         ];
-
-        # buildInputs = [ llvm ];
-
-        # cmakeFlags = [
-        #   "-DSYCL_ENABLE_WERROR=ON"
-        #   "-DSYCL_ENABLE_EXTENSION_JIT=ON"
-        #   "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
-        #   "-DSYCL_ENABLE_WERROR=ON"
-        #   "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
-        # ];
       });
 
       # Override libclang to use Intel's source with gnu-install-dirs pre-applied at monorepo level
@@ -959,13 +733,7 @@ in
           llvmFinal.xpti
         ];
 
-        # TODO
         cmakeFlags = [
-          # # Lookup broken
-          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_EMHASH" "${deps.emhash}")
-          # # Lookup not implemented
-          # (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_PARALLEL-HASHMAP" "${parallel-hashmap.src}")
-
           (lib.cmakeBool "XPTI_ENABLE_WERROR" true)
         ];
       });
