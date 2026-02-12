@@ -43,7 +43,7 @@ index cd9afa88506b..c267e7e755e5 100644
  set(sycl-compiler_deps
 -  sycl-compiler ${clang_target} ${append-file_target}
 +  ${clang_target} ${append-file_target}
-   ${clang-offload-bundler_target} ${clang-offload-packager_target}
+   ${clang-offload-bundler_target} ${llvm-offload-binary_target}
    ${file-table-tform_target} ${llvm-foreach_target} ${llvm-spirv_target}
    ${sycl-post-link_target})
 @@ -347,7 +354,7 @@ set(complex_obj_deps device_complex.h device.h ${sycl-compiler_deps})
@@ -55,3 +55,11 @@ index cd9afa88506b..c267e7e755e5 100644
  if (NOT MSVC AND UR_SANITIZER_INCLUDE_DIR)
    set(asan_obj_deps
      device.h atomic.hpp spirv_vars.h
+@@ -908,4 +915,6 @@ add_custom_target(install-libsycldevice
+   COMMAND ${CMAKE_COMMAND} -DCMAKE_INSTALL_COMPONENT=libsycldevice -P ${CMAKE_BINARY_DIR}/cmake_install.cmake
+   DEPENDS ${libsycldevice_build_targets}
+ )
+-add_dependencies(deploy-sycl-toolchain install-libsycldevice)
++if(TARGET deploy-sycl-toolchain)
++  add_dependencies(deploy-sycl-toolchain install-libsycldevice)
++endif()

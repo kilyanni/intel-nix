@@ -4,6 +4,7 @@
   stdenv,
   newScope,
   cudaPackages_13,
+  fetchFromGitHub,
 }: rec {
   # Main intel-llvm package using the new makeScope-based structure from nixpkgs
   # Pass useCcache = true (default) to use ccacheStdenv for faster local rebuilds
@@ -12,8 +13,26 @@
     useCcache = true;
   };
 
+  # Unified-runtime for standalone builds
+  unified-runtime = callPackage ./llvm/unified-runtime.nix {
+    buildStdenv = ccacheStdenv;
+    intel-llvm-src = fetchFromGitHub {
+      owner = "intel";
+      repo = "llvm";
+      rev = "ab3dc98de0fd1ada9df12b138de1e1f8b715cc27";
+      hash = "sha256-oHk8kQVNsyC9vrOsDqVoFLYl2yMMaTgpQnAW9iHZLfE=";
+    };
+    levelZeroSupport = true;
+    openclSupport = true;
+    cudaSupport = false;
+    rocmSupport = false;
+    nativeCpuSupport = false;
+  };
+
   # Alternative builds (experimental/legacy)
-  llvm-standalone = callPackage ./llvm-alt/standalone.nix {};
+  llvm-standalone = callPackage ./llvm-alt/standalone.nix {
+    inherit unified-runtime vc-intrinsics;
+  };
 
   llvm = llvm-monolithic;
 

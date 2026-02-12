@@ -64,7 +64,6 @@
       rocmSupport
       rocmGpuTargets
       nativeCpuSupport
-      buildTests
       ;
   };
   srcOrig = applyPatches {
@@ -85,12 +84,6 @@
     };
 
     patches = [
-      # https://github.com/intel/llvm/pull/19845
-      (fetchpatch {
-        name = "make-sycl-version-reproducible";
-        url = "https://github.com/intel/llvm/commit/1c22570828e24a628c399aae09ce15ad82b924c6.patch";
-        hash = "sha256-leBTUmanYaeoNbmA0m9VFX/5ViACuXidWUhohewshQQ=";
-      })
       # Fix hardcoded paths for llvm-foreach and llvm-link in SYCL toolchain
       ./patches/sycl-path-lookup.patch
       # Fix hardcoded install paths (CMAKE_INSTALL_LIBDIR, etc.)
@@ -124,16 +117,15 @@
   targetsToBuild' = "${hostTarget};SPIRV;AMDGPU;NVPTX";
   targetsToBuild = "host;SPIRV;AMDGPU;NVPTX";
 
-  stdenv =
-    let
-      base =
-        if useLibcxx
-        then llvmPackages.libcxxStdenv
-        else llvmPackages.stdenv;
-    in
-      if useCcache
-      then ccacheStdenv.override {stdenv = base;}
-      else base;
+  stdenv = let
+    base =
+      if useLibcxx
+      then llvmPackages.libcxxStdenv
+      else llvmPackages.stdenv;
+  in
+    if useCcache
+    then ccacheStdenv.override {stdenv = base;}
+    else base;
 in
   (llvmPackages.override (_: {
     inherit stdenv;
@@ -192,33 +184,26 @@ in
       (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${deps.vc-intrinsics}")
 
       (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
-
-      (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_ONEAPI-CK" "${deps.oneapi-ck}")
     ];
   })).overrideScope
   (
     llvmFinal: llvmPrev: {
-      # prev = throw llvmPrev.tblgen;
-      tblgen = llvmPrev.tblgen.overrideAttrs (old: {
-        # TODO: This is sketchy
-        # buildInputs = (old.buildInputs or []) ++ [vc-intrinsics];
-        buildInputs =
-          (old.buildInputs or [])
-          ++ [
-            zstd
-            zlib
-          ];
-      });
+      # Override tblgen to not apply nixpkgs' clangPatches (gnu-install-dirs is pre-applied at monorepo level)
+      tblgen =
+        (llvmPrev.tblgen.override {
+          clangPatches = [];
+        }).overrideAttrs (old: {
+          buildInputs =
+            (old.buildInputs or [])
+            ++ [
+              zstd
+              zlib
+            ];
+        });
 
-      buildLlvmTools = {
-        inherit
-          (llvmFinal)
-          tblgen
-          llvm
-          libclc
-          clang
-          ;
-      };
+      # Override buildLlvmPackages so libllvm uses our tblgen (built from Intel's source)
+      # instead of the one from otherSplices.selfBuildHost (nixpkgs' original)
+      buildLlvmPackages = llvmFinal;
 
       merged = symlinkJoin {
         pname = "intel-llvm";
@@ -247,10 +232,7 @@ in
 
       # Synthetic, not to be built directly
       llvm-base =
-        (llvmPrev.libllvm.override {
-          buildLlvmTools = llvmFinal.buildLlvmTools;
-          # tblgen = llvmFinal.tblgen;
-        }).overrideAttrs
+        llvmPrev.libllvm.overrideAttrs
         (
           old: let
             src' = runCommand "llvm-src-${version}" {inherit (src) passthru;} ''
@@ -274,6 +256,12 @@ in
           in {
             # inherit src;
             src = src';
+
+            # gnu-install-dirs is already applied at the monorepo level (srcOrig)
+            patches =
+              builtins.filter
+              (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
+              old.patches;
 
             # prev = throw (builtins.map (x: builtins.toString x.out.name) old.nativeBuildInputs);
             nativeBuildInputs =
@@ -348,6 +336,9 @@ in
 
                 "-DLLVM_BUILD_TOOLS=ON"
 
+                # Disable benchmark to avoid C2y extension errors with __COUNTER__ in benchmark.h
+                "-DLLVM_INCLUDE_BENCHMARKS=OFF"
+
                 # "-DSYCL_ENABLE_XPTI_TRACING=ON"
                 # "-DSYCL_ENABLE_BACKENDS=level_zero;level_zero_v2;cuda;hip"
 
@@ -387,27 +378,10 @@ in
 
             postInstall =
               ''
-                # Check if the rogue include directory was created in $out
-                if [ -d $out/include ]; then
-                  # Move its contents to the correct destination
-
-                  echo "searchmarker 123123123"
-                  echo ------------
-                  ${tree}/bin/tree $out
-                  echo ------------
-                  ${tree}/bin/tree $dev
-                  echo ------------
-
+                # LLVMSPIRVLib headers still install to $out/include (not covered by gnu-install-dirs)
+                if [ -d "$out/include/LLVMSPIRVLib" ]; then
                   mv $out/include/LLVMSPIRVLib $dev/include/
-                  mv $out/include/llvm/ExecutionEngine/Interpreter/* $dev/include/llvm/ExecutionEngine/Interpreter/
-                  mv $out/include/llvm/SYCLLowerIR/* $dev/include/llvm/SYCLLowerIR/
-
-                  # Remove the now-empty directory so fixupPhase doesn't see it
-                  rmdir $out/include/llvm/ExecutionEngine/Interpreter
-                  rmdir $out/include/llvm/ExecutionEngine
-                  rmdir $out/include/llvm/SYCLLowerIR
-                  rmdir $out/include/llvm
-                  rmdir $out/include
+                  find $out/include -type d -empty -delete 2>/dev/null || true
                 fi
               ''
               + (old.postInstall or "");
@@ -577,9 +551,7 @@ in
       });
 
       libclc =
-        (llvmPrev.libclc.override {
-          buildLlvmTools = llvmFinal.buildLlvmTools;
-        }).overrideAttrs
+        llvmPrev.libclc.overrideAttrs
         (old: {
           nativeBuildInputs =
             builtins.filter (
@@ -605,19 +577,20 @@ in
             "-DLLVM_BUILD_UTILS=ON"
             "-DLLVM_INSTALL_UTILS=ON"
 
+            # Intel's fork doesn't set LIBCLC_INSTALL_DIR for standalone builds (upstream does)
+            "-DLIBCLC_INSTALL_DIR=share/clc"
+
             # (lib.cmakeBool "LIBCLC_GENERATE_REMANGLED_VARIANTS" false)
           ];
 
-          patches =
-            [
-              (builtins.head old.patches)
-            ]
-            ++ [
-              ./patches/libclc-use-default-paths.patch
-              ./patches/libclc-remangler.patch
-              ./patches/libclc-find-clang.patch
-              ./patches/libclc-utils.patch
-            ];
+          # Drop all nixpkgs patches (gnu-install-dirs is pre-applied at monorepo level,
+          # and the rest are replaced by our custom patches)
+          patches = [
+            ./patches/libclc-use-default-paths.patch
+            ./patches/libclc-remangler.patch
+            ./patches/libclc-find-clang.patch
+            ./patches/libclc-utils.patch
+          ];
 
           preInstall = ''
             # TODO: Figure out why this is needed
@@ -863,19 +836,22 @@ in
         # ];
       });
 
+      # Override libclang to use Intel's source with gnu-install-dirs pre-applied at monorepo level
       libclang =
-        (llvmPrev.libclang.override {
-          buildLlvmTools = llvmFinal.buildLlvmTools;
-          # tblgen = llvmFinal.tblgen;
-        }).overrideAttrs
+        llvmPrev.libclang.overrideAttrs
         (old: {
+          # gnu-install-dirs is already applied at the monorepo level (srcOrig)
+          patches =
+            builtins.filter
+            (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
+            old.patches;
+
           buildInputs =
             (old.buildInputs or [])
             ++ [
               zstd
               zlib
               libedit
-              # overrides.llvm.dev
             ];
 
           postPatch =

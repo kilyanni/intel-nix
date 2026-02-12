@@ -23,8 +23,8 @@ index c3388fee6cc8..e807073e5be0 100644
    get_host_tool_path(sycl-post-link SYCL_POST_LINK sycl-post-link_exe sycl-post-link_target)
    get_host_tool_path(llvm-link LLVM_LINK llvm-link_exe llvm-link_target)
  else()
--  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler clang-offload-packager file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link)
-+  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler clang-offload-packager file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link prepare_builtins opt)
+-  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link)
++  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link prepare_builtins opt)
      find_program(LLVM_CUSTOM_TOOL_${tool} ${tool}
        PATHS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
      set(${tool}_exe ${LLVM_CUSTOM_TOOL_${tool}})

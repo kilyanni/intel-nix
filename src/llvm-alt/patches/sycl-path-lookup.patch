@@ -9,11 +9,11 @@ index 1234567890ab..abcdef123456 100644
 +#include "llvm/Support/Program.h"
  #include "llvm/Support/VirtualFileSystem.h"
  #include <sstream>
- 
+
 @@ -228,9 +229,15 @@ void SYCL::constructLLVMForeachCommand(Compilation &C, const JobAction &JA,
    for (auto &Arg : InputCommand->getArguments())
      ForeachArgs.push_back(Arg);
- 
+
 -  SmallString<128> ForeachPath(C.getDriver().Dir);
 -  llvm::sys::path::append(ForeachPath, "llvm-foreach");
 -  const char *Foreach = C.getArgs().MakeArgString(ForeachPath);
@@ -26,12 +26,12 @@ index 1234567890ab..abcdef123456 100644
 +    llvm::sys::path::append(ForeachPath, "llvm-foreach");
 +    Foreach = C.getArgs().MakeArgString(ForeachPath);
 +  }
- 
+
    auto Cmd = std::make_unique<Command>(JA, *T, ResponseFileSupport::None(),
                                         Foreach, ForeachArgs, std::nullopt);
 @@ -1105,9 +1112,15 @@ void SYCL::Linker::ConstructJob(Compilation &C, const JobAction &JA,
            C.getArgs().MakeArgString(getToolChain().getInputFilename(II)));
- 
+
    // Get llvm-link path.
 -  SmallString<128> ExecPath(C.getDriver().Dir);
 -  llvm::sys::path::append(ExecPath, "llvm-link");
@@ -45,6 +45,35 @@ index 1234567890ab..abcdef123456 100644
 +    llvm::sys::path::append(ExecPath, "llvm-link");
 +    Exec = C.getArgs().MakeArgString(ExecPath);
 +  }
- 
+
    C.addCommand(std::make_unique<Command>(
        JA, *this, ResponseFileSupport::AtFileUTF8(), Exec, CmdArgs, Inputs,
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -50,5 +50,6 @@
+ #include "llvm/Support/Path.h"
+ #include "llvm/Support/Process.h"
++#include "llvm/Support/Program.h"
+ #include "llvm/Support/YAMLParser.h"
+ #include "llvm/TargetParser/AArch64TargetParser.h"
+ #include "llvm/TargetParser/ARMTargetParserCommon.h"
+@@ -10662,9 +10663,15 @@ void SPIRV::Translator::ConstructJob(Compilation &C, const JobAction &JA,
+     for (auto &Arg : Cmd->getArguments())
+       ForeachArgs.push_back(Arg);
+
+-    SmallString<128> ForeachPath(C.getDriver().Dir);
+-    llvm::sys::path::append(ForeachPath, "llvm-foreach");
+-    const char *Foreach = C.getArgs().MakeArgString(ForeachPath);
++    const char *Foreach;
++    if (auto ForeachProgram = llvm::sys::findProgramByName("llvm-foreach")) {
++      Foreach = C.getArgs().MakeArgString(*ForeachProgram);
++    } else {
++      // Fallback to old behavior for backward compatibility
++      SmallString<128> ForeachPath(C.getDriver().Dir);
++      llvm::sys::path::append(ForeachPath, "llvm-foreach");
++      Foreach = C.getArgs().MakeArgString(ForeachPath);
++    }
+     C.addCommand(std::make_unique<Command>(
+         JA, *this, ResponseFileSupport::None(), Foreach, ForeachArgs, std::nullopt));
+   } else
