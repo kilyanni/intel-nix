@@ -183,23 +183,71 @@ in
       # instead of the one from otherSplices.selfBuildHost (nixpkgs' original)
       buildLlvmPackages = llvmFinal;
 
-      merged = symlinkJoin {
-        pname = "intel-llvm";
+      # All components merged without the cc-wrapper, analogous to
+      # the monolithic build's `self.unwrapped`.
+      unwrapped = symlinkJoin {
+        pname = "intel-llvm-unwrapped";
         inherit version;
         paths = with llvmFinal; [
           llvm
           clang
+          # lib output contains clang built-in headers (stddef.h, etc.)
+          # used by the resource-dir symlink in the wrapper
+          libclang.lib
           sycl
           opencl-aot
           xpti
           xptifw
           libdevice
         ];
+        # isClang is needed so the cc-wrapper sets up gcc-toolchain
+        # flags (--gcc-toolchain, -cxx-isystem for C++ stdlib headers).
+        # hardeningUnsupportedFlagsByTargetPlatform mirrors the standard
+        # nixpkgs clang so platform-inappropriate hardening flags (e.g.
+        # pacret on x86_64) are properly excluded.
+        passthru = {
+          isClang = true;
+          inherit (llvmPackages.clang.cc) hardeningUnsupportedFlagsByTargetPlatform;
+        };
       };
 
-      stdenv = llvmPrev.stdenv.override {
-        cc = llvmFinal.merged;
+      # cc-wrapper that sets up proper compiler flags (gcc-toolchain,
+      # resource-dir, SYCL headers). Without this, clang resolves
+      # symlinks via /proc/self/exe and looks for headers relative to
+      # the real clang derivation, missing headers from other components.
+      wrapper = (wrapCCWith {
+        cc = llvmFinal.unwrapped;
+        extraBuildCommands = ''
+          rsrc="$out/resource-root"
+          mkdir "$rsrc"
+          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
+          ln -s "${lib.getLib llvmFinal.unwrapped}/lib/clang/22/include" "$rsrc"
+          # Unlike the monolithic build, standalone components are in
+          # separate derivations. Clang's InstalledDir-relative header
+          # search won't find SYCL headers, so we add them explicitly.
+          echo " -isystem ${llvmFinal.unwrapped}/include" >> $out/nix-support/cc-cflags
+        '';
+      }).overrideAttrs (old: {
+        # OpenCL headers need to be propagated so users of this stdenv
+        # can compile SYCL code that includes <CL/cl.h>.
+        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [opencl-headers];
+      });
+
+      # Merged output with wrapper first so its nix-support/ takes precedence.
+      merged = symlinkJoin {
+        pname = "intel-llvm";
+        inherit version;
+        paths = [
+          llvmFinal.wrapper
+          llvmFinal.unwrapped
+        ];
+        passthru = {
+          inherit (llvmFinal) stdenv;
+          tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
+        };
       };
+
+      stdenv = overrideCC llvmPackages.stdenv llvmFinal.merged;
 
       # Synthetic, not to be built directly
       llvm-base =
