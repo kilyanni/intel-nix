@@ -1,0 +1,132 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,14 @@
+ cmake_minimum_required(VERSION 3.20.0 FATAL_ERROR)
+ 
++# Standalone build support
++if(NOT LLVM_MAIN_SRC_DIR)
++  find_package(LLVM REQUIRED CONFIG)
++  include(AddLLVM)
++  find_package(Clang REQUIRED CONFIG)
++  find_package(Python3 REQUIRED)
++  set(CMAKE_INCLUDE_CURRENT_DIR ON)
++endif()
++
+ # Define a variable holding the root directory of the JIT compiler project
+ # for use in includes etc.
+ set(SYCL_JIT_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+@@ -7,7 +16,14 @@
+ # For some reason, the LLVMSPIRVLib does not define any public includes.
+ # To link against the library, define the following link to its include
+ # directories, similar to how clang/CMakeLists.txt does it.
+-set(LLVM_SPIRV_INCLUDE_DIRS "${LLVM_MAIN_SRC_DIR}/../llvm-spirv/include")
++if(NOT LLVM_SPIRV_INCLUDE_DIRS)
++  set(LLVM_SPIRV_INCLUDE_DIRS "${LLVM_MAIN_SRC_DIR}/../llvm-spirv/include")
++endif()
++
++# In standalone builds, sycl-headers target doesn't exist.
++if(NOT TARGET sycl-headers)
++  add_custom_target(sycl-headers)
++endif()
+ 
+ if (NOT WIN32 AND NOT CYGWIN)
+   # Set library-wide warning options.
+
+diff --git a/jit-compiler/CMakeLists.txt b/jit-compiler/CMakeLists.txt
+--- a/jit-compiler/CMakeLists.txt
++++ b/jit-compiler/CMakeLists.txt
+@@ -11,39 +11,43 @@
+ 
+ set(SYCL_JIT_RESOURCE_INSTALL_COMPONENTS sycl-headers OpenCL-Headers clang-resource-headers)
+ 
+-if ("libclc" IN_LIST LLVM_ENABLE_PROJECTS)
+-  list(APPEND SYCL_JIT_RESOURCE_INSTALL_COMPONENTS libspirv-builtins)
+-endif()
++if(SYCL_JIT_RESOURCE_DIR)
++  # Standalone: resources are pre-staged, skip cmake --install pipeline.
++  set(SYCL_JIT_RESOURCE_DEPS)
++  set(SYCL_JIT_RESOURCE_INSTALL_DIR "${SYCL_JIT_RESOURCE_DIR}")
++  file(GLOB_RECURSE SYCL_JIT_RESOURCE_FILES CONFIGURE_DEPENDS "${SYCL_JIT_RESOURCE_INSTALL_DIR}/*")
++  add_custom_target(rtc-prepare-resources)
++else()
++  if ("libclc" IN_LIST LLVM_ENABLE_PROJECTS)
++    list(APPEND SYCL_JIT_RESOURCE_INSTALL_COMPONENTS libspirv-builtins)
++  endif()
+ 
+-if ("libdevice" IN_LIST LLVM_ENABLE_PROJECTS)
+-  list(APPEND SYCL_JIT_RESOURCE_INSTALL_COMPONENTS libsycldevice)
+-endif()
++  if ("libdevice" IN_LIST LLVM_ENABLE_PROJECTS)
++    list(APPEND SYCL_JIT_RESOURCE_INSTALL_COMPONENTS libsycldevice)
++  endif()
+ 
+-set(SYCL_JIT_RESOURCE_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/rtc-resources-install)
++  set(SYCL_JIT_RESOURCE_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/rtc-resources-install)
+ 
+-set(SYCL_JIT_PREPARE_RESOURCE_COMMANDS)
+-foreach(component IN LISTS SYCL_JIT_RESOURCE_INSTALL_COMPONENTS)
+-  list(APPEND SYCL_JIT_PREPARE_RESOURCE_COMMANDS
+-    COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${SYCL_JIT_RESOURCE_INSTALL_DIR} --component "${component}"
++  set(SYCL_JIT_PREPARE_RESOURCE_COMMANDS)
++  foreach(component IN LISTS SYCL_JIT_RESOURCE_INSTALL_COMPONENTS)
++    list(APPEND SYCL_JIT_PREPARE_RESOURCE_COMMANDS
++      COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${SYCL_JIT_RESOURCE_INSTALL_DIR} --component "${component}"
++    )
++  endforeach()
++
++  set(SYCL_JIT_RESOURCE_DEPS ${SYCL_JIT_RESOURCE_INSTALL_COMPONENTS})
++    # OpenCL-Headers doesn't have a corresponding build target:
++  list(FILTER SYCL_JIT_RESOURCE_DEPS EXCLUDE REGEX "^OpenCL-Headers$")
++
++  file(GLOB_RECURSE SYCL_JIT_RESOURCE_FILES CONFIGURE_DEPENDS "${SYCL_JIT_RESOURCE_INSTALL_DIR}/*" )
++
++  add_custom_target(rtc-prepare-resources
++    DEPENDS ${SYCL_JIT_RESOURCE_DEPS}
++    ${SYCL_JIT_PREPARE_RESOURCE_COMMANDS}
++    BYPRODUCTS
++    ${SYCL_JIT_RESOURCE_FILES}
+   )
+-endforeach()
+-
+-set(SYCL_JIT_RESOURCE_DEPS ${SYCL_JIT_RESOURCE_INSTALL_COMPONENTS})
+-  # OpenCL-Headers doesn't have a corresponding build target:
+-list(FILTER SYCL_JIT_RESOURCE_DEPS EXCLUDE REGEX "^OpenCL-Headers$")
+-
+-# This is very hacky and I don't quite know what I'm doing, but it's necessary
+-# to have `resource.cpp` re-generated/re-built when some SYCL header changes.
+-#
+-# Inspired by the way `sycl-headers` target is created.
+-file(GLOB_RECURSE SYCL_JIT_RESOURCE_FILES CONFIGURE_DEPENDS "${SYCL_JIT_RESOURCE_INSTALL_DIR}/*" )
+-
+-add_custom_target(rtc-prepare-resources
+-  DEPENDS ${SYCL_JIT_RESOURCE_DEPS}
+-  ${SYCL_JIT_PREPARE_RESOURCE_COMMANDS}
+-  BYPRODUCTS
+-  ${SYCL_JIT_RESOURCE_FILES}
+-)
++endif()
+ 
+ add_custom_command(
+   OUTPUT ${SYCL_JIT_RESOURCE_CPP}
+@@ -156,12 +160,18 @@
+ # Mark LLVM and SPIR-V headers as system headers to ignore warnigns in them.
+ # This classification remains intact even if the same paths are added as normal
+ # include paths in GCC and Clang.
++if(CLANG_INCLUDE_DIRS)
++  set(_SYCL_JIT_CLANG_INCLUDES ${CLANG_INCLUDE_DIRS})
++else()
++  set(_SYCL_JIT_CLANG_INCLUDES
++    ${LLVM_EXTERNAL_CLANG_SOURCE_DIR}/include
++    ${CMAKE_BINARY_DIR}/tools/clang/include)
++endif()
+ target_include_directories(sycl-jit
+   SYSTEM PRIVATE
+   ${LLVM_MAIN_INCLUDE_DIR}
+   ${LLVM_SPIRV_INCLUDE_DIRS}
+-  ${LLVM_EXTERNAL_CLANG_SOURCE_DIR}/include
+-  ${CMAKE_BINARY_DIR}/tools/clang/include
++  ${_SYCL_JIT_CLANG_INCLUDES}
+ )
+ target_include_directories(sycl-jit
+   PUBLIC

@@ -28,6 +28,7 @@
   ocl-icd,
   spirv-llvm-translator,
   pkg-config,
+  python3,
   lit,
   # TODO: llvmPackages.libcxx? libcxxStdenv?
   libcxx,
@@ -37,7 +38,7 @@
   level-zero,
   levelZeroSupport ? true,
   openclSupport ? true,
-  # Broken
+  # Not yet working
   cudaSupport ? false,
   rocmSupport ? false,
   rocmGpuTargets ? builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets,
@@ -103,7 +104,6 @@
       or (throw "Unsupported CPU architecture: ${stdenv.targetPlatform.parsed.cpu.name}");
 
   # TODO: Don't build targets not pulled in by *Support = true
-  targetsToBuild' = "${hostTarget};SPIRV;AMDGPU;NVPTX";
   targetsToBuild = "host;SPIRV;AMDGPU;NVPTX";
 
   stdenv = let
@@ -190,11 +190,16 @@ in
         inherit version;
         paths = with llvmFinal; [
           llvm
-          clang
+          # Use raw clang binary (clang.cc), NOT the nixpkgs cc-wrapper (clang).
+          # Our own wrapper handles all wrapping; including the nixpkgs wrapper
+          # would cause double-wrapping where the inner wrapper re-adds
+          # hardening flags (e.g. zerocallusedregs) that ours removed.
+          clang.cc
           # lib output contains clang built-in headers (stddef.h, etc.)
           # used by the resource-dir symlink in the wrapper
           libclang.lib
           sycl
+          sycl-jit
           opencl-aot
           xpti
           xptifw
@@ -207,7 +212,10 @@ in
         # pacret on x86_64) are properly excluded.
         passthru = {
           isClang = true;
-          inherit (llvmPackages.clang.cc) hardeningUnsupportedFlagsByTargetPlatform;
+          hardeningUnsupportedFlagsByTargetPlatform = tp:
+            (llvmPackages.clang.cc.hardeningUnsupportedFlagsByTargetPlatform tp)
+            # SYCL cross-compiles to SPIR-V which doesn't support this
+            ++ ["zerocallusedregs"];
         };
       };
 
@@ -572,15 +580,13 @@ in
             "-DLLVM_EXTERNAL_XPTIFW_SOURCE_DIR=/build/${finalAttrs.src.name}/xptifw"
             "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${finalAttrs.src.name}/sycl-jit"
 
-            # TODO: Reenable!
-            "-DSYCL_ENABLE_XPTI_TRACING=OFF"
+            "-DSYCL_ENABLE_XPTI_TRACING=ON"
             "-DSYCL_ENABLE_BACKENDS=${lib.strings.concatStringsSep ";" unified-runtime'.backends}"
 
             "-DLLVM_INCLUDE_TESTS=ON"
             "-DSYCL_INCLUDE_TESTS=ON"
 
-            # TODO: REENABLE!
-            "-DSYCL_ENABLE_EXTENSION_JIT=OFF"
+            "-DSYCL_ENABLE_EXTENSION_JIT=ON"
             "-DSYCL_ENABLE_MAJOR_RELEASE_PREVIEW_LIB=ON"
             "-DSYCL_BUILD_PI_HIP_PLATFORM=AMD"
 
@@ -652,10 +658,61 @@ in
 
         sourceRoot = "${finalAttrs.src.name}/sycl-jit";
 
+        patches = [
+          ./patches/sycl-jit-standalone.patch
+        ];
+
         nativeBuildInputs = [
           cmake
           ninja
+          python3
+          llvmFinal.llvm.dev
+          llvmFinal.clang.cc.dev
         ];
+
+        buildInputs = [
+          llvmFinal.llvm
+          llvmFinal.clang.cc
+          opencl-headers
+          zstd
+          zlib
+        ];
+
+        # Stage resource files (sycl headers, OpenCL headers, clang resource
+        # headers) into a directory that generate.py will embed into the
+        # sycl-jit library via C23 #embed.
+        preConfigure = ''
+          resourceDir=$TMPDIR/jit-resources
+          mkdir -p $resourceDir/include
+
+          # SYCL headers from source tree
+          cp -r /build/${finalAttrs.src.name}/sycl/include/* $resourceDir/include/
+
+          # OpenCL headers (merge without clobbering sycl's CL/ files)
+          cp -rn ${opencl-headers}/include/CL $resourceDir/include/ 2>/dev/null || true
+
+          # Clang resource headers
+          mkdir -p $resourceDir/lib/clang/22
+          cp -r ${lib.getLib llvmFinal.libclang}/lib/clang/22/include $resourceDir/lib/clang/22/
+          chmod -R u+w $resourceDir
+
+          # Pass to cmake via shell expansion (lib.cmakeFeature escapes $TMPDIR)
+          cmakeFlagsArray+=("-DSYCL_JIT_RESOURCE_DIR=$resourceDir")
+        '';
+
+        cmakeFlags = [
+          (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/cc")
+          (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${stdenv.cc}/bin/c++")
+          (lib.cmakeFeature "LLVM_SPIRV_INCLUDE_DIRS" "${llvmFinal.llvm.dev}/include/LLVMSPIRVLib")
+          # SYCL_JIT_RESOURCE_DIR is set via cmakeFlagsArray in preConfigure
+          # Tell get_host_tool_path where to find clang for resource compilation
+          (lib.cmakeFeature "CLANG" "${llvmFinal.clang}/bin/clang++")
+          (lib.cmakeFeature "LLVM_HOST_TRIPLE" stdenv.hostPlatform.config)
+          (lib.cmakeFeature "LLVM_TARGETS_TO_BUILD" targetsToBuild)
+        ];
+
+        # Sycl headers include path (for sycl/detail/string.hpp)
+        env.NIX_CFLAGS_COMPILE = "-isystem /build/${finalAttrs.src.name}/sycl/include";
       });
 
       # Override libclang to use Intel's source with gnu-install-dirs pre-applied at monorepo level

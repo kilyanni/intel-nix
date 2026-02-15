@@ -2,19 +2,45 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 25d437f46f20..400633df95e5 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -39,6 +39,11 @@ if (NOT XPTI_PROXY_SRC)
+@@ -39,6 +39,37 @@ if (NOT XPTI_PROXY_SRC)
    set(XPTI_PROXY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../xpti/src/xpti_proxy.cpp)
  endif()
  
 +find_package(LLVM REQUIRED CONFIG)
 +include(AddLLVM)
 +
++# LLVM's CMakeLists.txt sets CMAKE_INCLUDE_CURRENT_DIR ON; standalone
++# builds need it too (e.g. sycl-trace generated .def files).
++set(CMAKE_INCLUDE_CURRENT_DIR ON)
++
 +find_package(Clang REQUIRED CONFIG)
++
++# In standalone builds, xpti and xptifw are pre-built libraries.
++# Create imported targets so cmake can reference them.
++if(SYCL_ENABLE_XPTI_TRACING)
++  if(NOT TARGET xpti)
++    find_library(XPTI_LIBRARY NAMES xpti REQUIRED)
++    add_library(xpti STATIC IMPORTED GLOBAL)
++    set_target_properties(xpti PROPERTIES IMPORTED_LOCATION "${XPTI_LIBRARY}")
++  endif()
++  if(NOT TARGET xptifw)
++    find_library(XPTIFW_LIBRARY NAMES xptifw REQUIRED)
++    add_library(xptifw SHARED IMPORTED GLOBAL)
++    set_target_properties(xptifw PROPERTIES IMPORTED_LOCATION "${XPTIFW_LIBRARY}")
++  endif()
++endif()
++
++# In standalone builds, sycl-jit is pre-built and loaded at runtime via
++# dlopen. Create a dummy target so add_dependencies() calls succeed.
++if(SYCL_ENABLE_EXTENSION_JIT AND NOT TARGET sycl-jit)
++  add_custom_target(sycl-jit)
++  add_custom_target(check-sycl-jit)
++endif()
 +
  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
  include(AddSYCLExecutable)
  include(AddSYCL)
-@@ -142,13 +147,13 @@ endif()
+@@ -142,13 +171,13 @@ endif()
  set(CLANG_VERSION "${CLANG_VERSION_MAJOR}.${CLANG_VERSION_MINOR}.${CLANG_VERSION_PATCHLEVEL}")
  
  set(SYCL_INCLUDE_DIR "include")
@@ -34,7 +60,7 @@ index 25d437f46f20..400633df95e5 100644
  
  if(NOT OpenCL_FOUND)
    # Copy OpenCL Headers into sycl headers build directory
-@@ -372,7 +378,6 @@ add_custom_target(sycl-compiler
+@@ -372,7 +402,6 @@ add_custom_target(sycl-compiler
            llvm-objcopy
            spirv-to-ir-wrapper
            sycl-post-link
@@ -42,7 +68,7 @@ index 25d437f46f20..400633df95e5 100644
  )
  
  add_custom_target( sycl-runtime-libraries
-@@ -504,43 +509,45 @@ if("libclc" IN_LIST LLVM_ENABLE_PROJECTS)
+@@ -504,43 +533,45 @@ if("libclc" IN_LIST LLVM_ENABLE_PROJECTS)
  endif()
  
  if("cuda" IN_LIST SYCL_ENABLE_BACKENDS)
