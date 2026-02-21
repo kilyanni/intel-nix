@@ -345,10 +345,14 @@ in
           };
       });
 
-      # clang-tools uses clang-stage-1 to break the libdevice cycle:
-      # public clang (stage-2) propagates libdevice, libdevice builds with
-      # clang-tools, so clang-tools must not reference stage-2.
-      clang-tools = llvmPrev.clang-tools.override {clang = llvmFinal.clang-stage-1;};
+      # Stage-1: clang-tools without libdevice. libdevice builds with this.
+      clang-tools-stage-1 = llvmPrev.clang-tools.override {clang = llvmFinal.clang-stage-1;};
+
+      # Stage-2: clang-tools with libdevice propagated. SYCL tools like
+      # clang-sycl-linker and clang-linker-wrapper need libdevice at runtime.
+      clang-tools = llvmFinal.clang-tools-stage-1.overrideAttrs (old: {
+        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [llvmFinal.libdevice];
+      });
 
       stdenv = overrideCC llvmPackages.stdenv llvmFinal.clang;
 
@@ -524,7 +528,7 @@ in
             paths = [
               llvmFinal.llvm
               llvmFinal.clang-stage-1
-              llvmFinal.clang-tools
+              llvmFinal.clang-tools-stage-1
             ];
             postBuild = ''
               rm $out/bin/clang
@@ -560,7 +564,7 @@ in
           cmakeFlags = [
             (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
             "-DLLVM_TOOLS_DIR=${llvmFinal.llvm}/bin"
-            "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools}/bin"
+            "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools-stage-1}/bin"
             # Despite being in libdevice, this flag is called LIBCLC_
             "-DLIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR=${tools}/bin"
             "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
