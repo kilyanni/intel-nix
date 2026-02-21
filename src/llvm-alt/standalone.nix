@@ -161,99 +161,8 @@ in
     ];
   })).overrideScope
   (
-    llvmFinal: llvmPrev: {
-      # Override tblgen to not apply nixpkgs' clangPatches (gnu-install-dirs is pre-applied at monorepo level)
-      tblgen =
-        (llvmPrev.tblgen.override {
-          clangPatches = [];
-        }).overrideAttrs (old: {
-          buildInputs =
-            (old.buildInputs or [])
-            ++ [
-              zstd
-              zlib
-            ];
-        });
-
-      # Override buildLlvmPackages so libllvm uses our tblgen (built from Intel's source)
-      # instead of the one from otherSplices.selfBuildHost (nixpkgs' original)
-      buildLlvmPackages = llvmFinal;
-
-      # All components merged without the cc-wrapper, analogous to
-      # the monolithic build's `self.unwrapped`.
-      unwrapped = symlinkJoin {
-        pname = "intel-llvm-unwrapped";
-        inherit version;
-        paths = with llvmFinal; [
-          llvm
-          # Use raw clang binary (clang.cc), NOT the nixpkgs cc-wrapper (clang).
-          # Our own wrapper handles all wrapping; including the nixpkgs wrapper
-          # would cause double-wrapping where the inner wrapper re-adds
-          # hardening flags (e.g. zerocallusedregs) that ours removed.
-          clang.cc
-          # lib output contains clang built-in headers (stddef.h, etc.)
-          # used by the resource-dir symlink in the wrapper
-          libclang.lib
-          sycl
-          sycl-jit
-          opencl-aot
-          xpti
-          xptifw
-          libdevice
-        ];
-        # isClang is needed so the cc-wrapper sets up gcc-toolchain
-        # flags (--gcc-toolchain, -cxx-isystem for C++ stdlib headers).
-        # hardeningUnsupportedFlagsByTargetPlatform mirrors the standard
-        # nixpkgs clang so platform-inappropriate hardening flags (e.g.
-        # pacret on x86_64) are properly excluded.
-        passthru = {
-          isClang = true;
-          hardeningUnsupportedFlagsByTargetPlatform = tp:
-            (llvmPackages.clang.cc.hardeningUnsupportedFlagsByTargetPlatform tp)
-            # SYCL cross-compiles to SPIR-V which doesn't support this
-            ++ ["zerocallusedregs"];
-        };
-      };
-
-      # cc-wrapper that sets up proper compiler flags (gcc-toolchain,
-      # resource-dir, SYCL headers). Without this, clang resolves
-      # symlinks via /proc/self/exe and looks for headers relative to
-      # the real clang derivation, missing headers from other components.
-      wrapper = (wrapCCWith {
-        cc = llvmFinal.unwrapped;
-        extraBuildCommands = ''
-          rsrc="$out/resource-root"
-          mkdir "$rsrc"
-          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
-          ln -s "${lib.getLib llvmFinal.unwrapped}/lib/clang/22/include" "$rsrc"
-          # Unlike the monolithic build, standalone components are in
-          # separate derivations. Clang's InstalledDir-relative header
-          # search won't find SYCL headers, so we add them explicitly.
-          echo " -isystem ${llvmFinal.unwrapped}/include" >> $out/nix-support/cc-cflags
-        '';
-      }).overrideAttrs (old: {
-        # OpenCL headers need to be propagated so users of this stdenv
-        # can compile SYCL code that includes <CL/cl.h>.
-        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [opencl-headers];
-      });
-
-      # Merged output with wrapper first so its nix-support/ takes precedence.
-      merged = symlinkJoin {
-        pname = "intel-llvm";
-        inherit version;
-        paths = [
-          llvmFinal.wrapper
-          llvmFinal.unwrapped
-        ];
-        passthru = {
-          inherit (llvmFinal) stdenv;
-          tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
-        };
-      };
-
-      stdenv = overrideCC llvmPackages.stdenv llvmFinal.merged;
-
-      # Synthetic, not to be built directly
+    llvmFinal: llvmPrev:
+    let
       llvm-base =
         llvmPrev.libllvm.overrideAttrs
         (
@@ -348,16 +257,7 @@ in
               '';
           }
         );
-
-      llvm-no-spirv = llvmFinal.llvm-base.overrideAttrs (oldAttrs: {
-        postPatch =
-          oldAttrs.postPatch
-          + ''
-            rm -rf tools/spirv-to-ir-wrapper
-          '';
-      });
-
-      llvm-with-intree-spirv = llvmFinal.llvm-base.overrideAttrs (oldAttrs: {
+      llvm-with-intree-spirv = llvm-base.overrideAttrs (oldAttrs: {
         cmakeFlags =
           oldAttrs.cmakeFlags
           ++ [
@@ -378,33 +278,99 @@ in
             spirv-tools
           ];
       });
+    in {
+      # Override tblgen to not apply nixpkgs' clangPatches (gnu-install-dirs is pre-applied at monorepo level)
+      tblgen =
+        (llvmPrev.tblgen.override {
+          clangPatches = [];
+        }).overrideAttrs (old: {
+          buildInputs =
+            (old.buildInputs or [])
+            ++ [
+              zstd
+              zlib
+            ];
+        });
 
-      spirv-to-ir-wrapper = stdenv.mkDerivation (finalAttrs: {
-        pname = "spirv-to-ir-wrapper";
+      # Override buildLlvmPackages so libllvm uses our tblgen (built from Intel's source)
+      # instead of the one from otherSplices.selfBuildHost (nixpkgs' original)
+      buildLlvmPackages = llvmFinal;
+
+      # All components merged without the cc-wrapper, analogous to
+      # the monolithic build's `self.unwrapped`.
+      unwrapped = symlinkJoin {
+        pname = "intel-llvm-unwrapped";
         inherit version;
+        paths = with llvmFinal; [
+          llvm
+          # Use raw clang binary (clang.cc), NOT the Intel cc-wrapper (clang).
+          # Our own wrapper handles all wrapping; including the wrapper
+          # would cause double-wrapping where the inner wrapper re-adds
+          # hardening flags (e.g. zerocallusedregs) that ours removed.
+          clang.cc
+          # lib output contains clang built-in headers (stddef.h, etc.)
+          # used by the resource-dir symlink in the wrapper
+          libclang.lib
+          sycl
+          sycl-jit
+          opencl-aot
+          xpti
+          xptifw
+          libdevice
+        ];
+        # isClang is needed so the cc-wrapper sets up gcc-toolchain
+        # flags (--gcc-toolchain, -cxx-isystem for C++ stdlib headers).
+        # hardeningUnsupportedFlagsByTargetPlatform mirrors the standard
+        # nixpkgs clang so platform-inappropriate hardening flags (e.g.
+        # pacret on x86_64) are properly excluded.
+        passthru = {
+          isClang = true;
+          hardeningUnsupportedFlagsByTargetPlatform = tp:
+            (llvmPackages.clang.cc.hardeningUnsupportedFlagsByTargetPlatform tp)
+            # SYCL cross-compiles to SPIR-V which doesn't support this
+            ++ ["zerocallusedregs"];
+        };
+      };
 
-        src = runCommand "spirv-to-ir-wrapper-src-${version}" {inherit (src) passthru;} ''
-          mkdir -p "$out"
-          cp -r ${src}/llvm/tools/spirv-to-ir-wrapper "$out"
+      # cc-wrapper that sets up proper compiler flags (gcc-toolchain,
+      # resource-dir, SYCL headers). Without this, clang resolves
+      # symlinks via /proc/self/exe and looks for headers relative to
+      # the real clang derivation, missing headers from other components.
+      clang = (wrapCCWith {
+        cc = llvmFinal.unwrapped;
+        extraBuildCommands = ''
+          rsrc="$out/resource-root"
+          mkdir "$rsrc"
+          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
+          ln -s "${lib.getLib llvmFinal.unwrapped}/lib/clang/22/include" "$rsrc"
+          # Unlike the monolithic build, standalone components are in
+          # separate derivations. Clang's InstalledDir-relative header
+          # search won't find SYCL headers, so we add them explicitly.
+          echo " -isystem ${llvmFinal.unwrapped}/include" >> $out/nix-support/cc-cflags
         '';
-
-        sourceRoot = "${finalAttrs.src.name}/spirv-to-ir-wrapper";
-
-        patches = [./patches/spirv-to-ir-wrapper.patch];
-
-        nativeBuildInputs = [
-          cmake
-          ninja
-          llvmFinal.llvm-no-spirv.dev
-          llvmFinal.spirv-llvm-translator.dev
-        ];
-        buildInputs = [
-          llvmFinal.llvm-no-spirv
-          llvmFinal.spirv-llvm-translator
-        ];
+      }).overrideAttrs (old: {
+        # OpenCL headers need to be propagated so users of this stdenv
+        # can compile SYCL code that includes <CL/cl.h>.
+        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [opencl-headers];
       });
 
-      libllvm = llvmFinal.llvm-with-intree-spirv;
+      # Merged output with wrapper first so its nix-support/ takes precedence.
+      merged = symlinkJoin {
+        pname = "intel-llvm";
+        inherit version;
+        paths = [
+          llvmFinal.clang
+          llvmFinal.unwrapped
+        ];
+        passthru = {
+          inherit (llvmFinal) stdenv;
+          tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
+        };
+      };
+
+      stdenv = overrideCC llvmPackages.stdenv llvmFinal.merged;
+
+      libllvm = llvm-with-intree-spirv;
 
       opencl-aot = stdenv.mkDerivation (finalAttrs: {
         pname = "opencl-aot";
