@@ -296,79 +296,61 @@ in
       # instead of the one from otherSplices.selfBuildHost (nixpkgs' original)
       buildLlvmPackages = llvmFinal;
 
-      # All components merged without the cc-wrapper, analogous to
-      # the monolithic build's `self.unwrapped`.
-      unwrapped = symlinkJoin {
-        pname = "intel-llvm-unwrapped";
-        inherit version;
-        paths = with llvmFinal; [
-          llvm
-          # Use raw clang binary (clang.cc), NOT the Intel cc-wrapper (clang).
-          # Our own wrapper handles all wrapping; including the wrapper
-          # would cause double-wrapping where the inner wrapper re-adds
-          # hardening flags (e.g. zerocallusedregs) that ours removed.
-          clang.cc
-          # lib output contains clang built-in headers (stddef.h, etc.)
-          # used by the resource-dir symlink in the wrapper
-          libclang.lib
-          sycl
-          sycl-jit
-          opencl-aot
-          xpti
-          xptifw
-          libdevice
-        ];
-        # isClang is needed so the cc-wrapper sets up gcc-toolchain
-        # flags (--gcc-toolchain, -cxx-isystem for C++ stdlib headers).
-        # hardeningUnsupportedFlagsByTargetPlatform mirrors the standard
-        # nixpkgs clang so platform-inappropriate hardening flags (e.g.
-        # pacret on x86_64) are properly excluded.
-        passthru = {
-          isClang = true;
-          hardeningUnsupportedFlagsByTargetPlatform = tp:
-            (llvmPackages.clang.cc.hardeningUnsupportedFlagsByTargetPlatform tp)
-            # SYCL cross-compiles to SPIR-V which doesn't support this
-            ++ ["zerocallusedregs"];
-        };
-      };
+      # SYCL cross-compiles to SPIR-V which doesn't support zerocallusedregs;
+      # wrapCCWith reads hardeningUnsupportedFlagsByTargetPlatform from cc.passthru.
+      clang-unwrapped = llvmPrev.clang-unwrapped.overrideAttrs (old: {
+        passthru =
+          old.passthru
+          // {
+            hardeningUnsupportedFlagsByTargetPlatform = tp:
+              (old.passthru.hardeningUnsupportedFlagsByTargetPlatform tp)
+              ++ ["zerocallusedregs"];
+          };
+      });
 
-      # cc-wrapper that sets up proper compiler flags (gcc-toolchain,
-      # resource-dir, SYCL headers). Without this, clang resolves
-      # symlinks via /proc/self/exe and looks for headers relative to
-      # the real clang derivation, missing headers from other components.
-      clang = (wrapCCWith {
-        cc = llvmFinal.unwrapped;
+      # Stage-1: cc-wrapper without libdevice. libdevice builds with this so it
+      # can't be propagated here (cycle). Use clang-stage-1 as the build-time
+      # compiler anywhere that libdevice is a (transitive) build input.
+      clang-stage-1 = (wrapCCWith {
+        cc = llvmFinal.clang-unwrapped;
         extraBuildCommands = ''
           rsrc="$out/resource-root"
           mkdir "$rsrc"
           echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
-          ln -s "${lib.getLib llvmFinal.unwrapped}/lib/clang/22/include" "$rsrc"
-          # Unlike the monolithic build, standalone components are in
-          # separate derivations. Clang's InstalledDir-relative header
-          # search won't find SYCL headers, so we add them explicitly.
-          echo " -isystem ${llvmFinal.unwrapped}/include" >> $out/nix-support/cc-cflags
+          ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
+          echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
         '';
       }).overrideAttrs (old: {
-        # OpenCL headers need to be propagated so users of this stdenv
-        # can compile SYCL code that includes <CL/cl.h>.
-        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [opencl-headers];
+        propagatedBuildInputs =
+          (old.propagatedBuildInputs or [])
+          ++ [
+            opencl-headers
+            llvmFinal.llvm
+            llvmFinal.sycl
+            llvmFinal.sycl-jit
+            llvmFinal.opencl-aot
+            llvmFinal.xpti
+            llvmFinal.xptifw
+          ];
       });
 
-      # Merged output with wrapper first so its nix-support/ takes precedence.
-      merged = symlinkJoin {
-        pname = "intel-llvm";
-        inherit version;
-        paths = [
-          llvmFinal.clang
-          llvmFinal.unwrapped
-        ];
-        passthru = {
-          inherit (llvmFinal) stdenv;
-          tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
-        };
-      };
+      # Stage-2: stage-1 + libdevice propagated. This is the public clang.
+      clang = llvmFinal.clang-stage-1.overrideAttrs (old: {
+        propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
+        passthru =
+          old.passthru
+          // {
+            inherit (llvmFinal) stdenv;
+            tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
+          };
+      });
 
-      stdenv = overrideCC llvmPackages.stdenv llvmFinal.merged;
+      # clang-tools uses clang-stage-1 to break the libdevice cycle:
+      # public clang (stage-2) propagates libdevice, libdevice builds with
+      # clang-tools, so clang-tools must not reference stage-2.
+      clang-tools = llvmPrev.clang-tools.override {clang = llvmFinal.clang-stage-1;};
+
+      stdenv = overrideCC llvmPackages.stdenv llvmFinal.clang;
 
       libllvm = llvm-with-intree-spirv;
 
@@ -533,7 +515,7 @@ in
 
       libdevice = stdenv.mkDerivation (
         finalAttrs: let
-          # Uses the cc-wrapper (llvmFinal.clang) intentionally: the rm/ln -s trick
+          # Uses the cc-wrapper (clang-stage-1) intentionally: the rm/ln -s trick
           # replaces the `clang` wrapper script with `clang++`'s, so anything invoking
           # `clang` gets C++ mode. This wouldn't work with clang.cc (raw binary) since
           # argv[0] determines mode regardless of symlink target.
@@ -541,7 +523,7 @@ in
             name = "libdevice-tools";
             paths = [
               llvmFinal.llvm
-              llvmFinal.clang
+              llvmFinal.clang-stage-1
               llvmFinal.clang-tools
             ];
             postBuild = ''
