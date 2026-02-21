@@ -47,9 +47,6 @@
   useCcache ? true,
   # This is a decent speedup over GNU ld
   useLld ? true,
-  buildTests ? false,
-  buildDocs ? false,
-  buildMan ? false,
 }: let
   version = "unstable-2025-11-14";
   date = "20251114";
@@ -92,7 +89,6 @@
       --replace-fail "NO_CMAKE_PACKAGE_REGISTRY" ""
   '';
   llvmPackages = llvmPackages_22;
-  # TODO
   hostTarget =
     {
       "x86_64" = "X86";
@@ -104,7 +100,7 @@
       or (throw "Unsupported CPU architecture: ${stdenv.targetPlatform.parsed.cpu.name}");
 
   # TODO: Don't build targets not pulled in by *Support = true
-  targetsToBuild = "host;SPIRV;AMDGPU;NVPTX";
+  targetsToBuild = "${hostTarget};SPIRV;AMDGPU;NVPTX";
 
   stdenv = let
     base =
@@ -335,46 +331,21 @@ in
             postFixup =
               (old.postFixup or "")
               + ''
-                #####################################
-                # Patch *.cmake and *.pc files
-                #####################################
-                find "$dev" -type f \( -name "*.cmake" -o -name "*.pc" \) | while read -r f; do
-                  tmpf="$(mktemp)"
-                  cp "$f" "$tmpf"
-
-                  sed -i \
+                # Patch *.cmake and *.pc files to reference $dev/include instead of $out/include
+                find "$dev" -type f \( -name "*.cmake" -o -name "*.pc" \) \
+                  -exec sed -i \
                     -e 's|'"$out"'/include|'"$dev"'/include|g' \
                     -e 's|''${_IMPORT_PREFIX}/include|'$dev'/include|g' \
-                    "$f"
+                    {} +
 
-                  if ! diff -q "$tmpf" "$f" >/dev/null; then
-                    echo "Changed: $f"
-                    diff -u "$tmpf" "$f" || true
-                  fi
-
-                  rm -f "$tmpf"
-                done || true
-
-                #####################################
-                # Patch executables in bin directory
-                #####################################
+                # Patch executables in dev bin directory
                 if [ -d "$dev/bin" ]; then
-                  find "$dev/bin" -type f -executable | while read -r f; do
-                    tmpf="$(mktemp)"
-                    cp "$f" "$tmpf"
-
-                    sed -i \
+                  find "$dev/bin" -type f -executable \
+                    -exec sed -i \
                       -e 's|'"$out"'/include|'"$dev"'/include|g' \
-                      "$f" 2>/dev/null || true
-
-                    if ! diff -q "$tmpf" "$f" >/dev/null; then
-                      echo "Changed: $f"
-                      diff -u "$tmpf" "$f" || true
-                    fi
-
-                    rm -f "$tmpf"
-                  done || true
-                fi          '';
+                      {} + 2>/dev/null || true
+                fi
+              '';
           }
         );
 
@@ -517,8 +488,6 @@ in
           '';
         });
 
-      vc-intrinsics = vc-intrinsics.override {};
-
       spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (
         oldAttrs: let
           src' = runCommand "spirv-llvm-translator-src-${version}" {inherit (src) passthru;} ''
@@ -555,10 +524,9 @@ in
           [
             llvmFinal.xpti
             llvmFinal.xptifw
-            # Might need to be propagated
             llvmFinal.opencl-aot
             llvmFinal.llvm
-            llvmFinal.clang
+            llvmFinal.clang.cc
             llvmFinal.clang.cc.dev
             (zstd.override {enableStatic = true;})
             zlib
@@ -581,7 +549,7 @@ in
             "-DLLVM_EXTERNAL_SYCL_JIT_SOURCE_DIR=/build/${finalAttrs.src.name}/sycl-jit"
 
             "-DSYCL_ENABLE_XPTI_TRACING=ON"
-            "-DSYCL_ENABLE_BACKENDS=${lib.strings.concatStringsSep ";" unified-runtime'.backends}"
+            "-DSYCL_ENABLE_BACKENDS=${lib.concatStringsSep ";" unified-runtime'.backends}"
 
             "-DLLVM_INCLUDE_TESTS=ON"
             "-DSYCL_INCLUDE_TESTS=ON"
@@ -599,6 +567,10 @@ in
 
       libdevice = stdenv.mkDerivation (
         finalAttrs: let
+          # Uses the cc-wrapper (llvmFinal.clang) intentionally: the rm/ln -s trick
+          # replaces the `clang` wrapper script with `clang++`'s, so anything invoking
+          # `clang` gets C++ mode. This wouldn't work with clang.cc (raw binary) since
+          # argv[0] determines mode regardless of symlink target.
           tools = symlinkJoin {
             name = "libdevice-tools";
             paths = [
@@ -636,8 +608,6 @@ in
           ];
 
           hardeningDisable = ["zerocallusedregs"];
-
-          ninjaFlags = ["-v"];
 
           cmakeFlags = [
             (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
@@ -693,7 +663,7 @@ in
 
           # Clang resource headers
           mkdir -p $resourceDir/lib/clang/22
-          cp -r ${lib.getLib llvmFinal.libclang}/lib/clang/22/include $resourceDir/lib/clang/22/
+          cp -r ${llvmFinal.libclang.lib}/lib/clang/22/include $resourceDir/lib/clang/22/
           chmod -R u+w $resourceDir
 
           # Pass to cmake via shell expansion (lib.cmakeFeature escapes $TMPDIR)
@@ -706,7 +676,7 @@ in
           (lib.cmakeFeature "LLVM_SPIRV_INCLUDE_DIRS" "${llvmFinal.llvm.dev}/include/LLVMSPIRVLib")
           # SYCL_JIT_RESOURCE_DIR is set via cmakeFlagsArray in preConfigure
           # Tell get_host_tool_path where to find clang for resource compilation
-          (lib.cmakeFeature "CLANG" "${llvmFinal.clang}/bin/clang++")
+          (lib.cmakeFeature "CLANG" "${llvmFinal.clang.cc}/bin/clang++")
           (lib.cmakeFeature "LLVM_HOST_TRIPLE" stdenv.hostPlatform.config)
           (lib.cmakeFeature "LLVM_TARGETS_TO_BUILD" targetsToBuild)
         ];
