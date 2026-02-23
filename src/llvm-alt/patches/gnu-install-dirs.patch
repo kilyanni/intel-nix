@@ -259,6 +259,28 @@ index 7d48491ec89a..cb5f751a80ca 100644
  install(TARGETS lldbIntelFeatures
 -  LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX})
 +  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+diff --git a/llvm-spirv/CMakeLists.txt b/llvm-spirv/CMakeLists.txt
+--- a/llvm-spirv/CMakeLists.txt
++++ b/llvm-spirv/CMakeLists.txt
+@@ -161,16 +161,16 @@ endif(LLVM_SPIRV_INCLUDE_TESTS)
+ install(
+   FILES
+     ${LLVM_SPIRV_INCLUDE_DIRS}/LLVMSPIRVLib.h
+     ${LLVM_SPIRV_INCLUDE_DIRS}/LLVMSPIRVOpts.h
+     ${LLVM_SPIRV_INCLUDE_DIRS}/LLVMSPIRVExtensions.inc
+   DESTINATION
+-    ${CMAKE_INSTALL_PREFIX}/include/LLVMSPIRVLib
++    ${CMAKE_INSTALL_INCLUDEDIR}/LLVMSPIRVLib
+ )
+
+ configure_file(LLVMSPIRVLib.pc.in ${CMAKE_BINARY_DIR}/LLVMSPIRVLib.pc @ONLY)
+ install(
+   FILES
+     ${CMAKE_BINARY_DIR}/LLVMSPIRVLib.pc
+   DESTINATION
+-    ${CMAKE_INSTALL_PREFIX}/lib${LLVM_LIBDIR_SUFFIX}/pkgconfig
++    ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+ )
 diff --git a/llvm-spirv/LLVMSPIRVLib.pc.in b/llvm-spirv/LLVMSPIRVLib.pc.in
 index 814c59251611..7188084e8061 100644
 --- a/llvm-spirv/LLVMSPIRVLib.pc.in
@@ -293,7 +315,7 @@ diff --git a/llvm/cmake/modules/AddLLVM.cmake b/llvm/cmake/modules/AddLLVM.cmake
 index 7d40d309d538..5844f0f2a2fa 100644
 --- a/llvm/cmake/modules/AddLLVM.cmake
 +++ b/llvm/cmake/modules/AddLLVM.cmake
-@@ -974,8 +974,8 @@ macro(add_llvm_library name)
+@@ -974,8 +974,9 @@ macro(add_llvm_library name)
        endif()
        install(TARGETS ${name}
                ${export_to_llvmexports}
@@ -301,6 +323,7 @@ index 7d40d309d538..5844f0f2a2fa 100644
 -              ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT ${name}
 +              LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${name}
 +              ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${name}
++              INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
                RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ${name})
 
        if (NOT LLVM_ENABLE_IDE)
