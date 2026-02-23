@@ -41,6 +41,15 @@ let
     ];
   };
 
+  # Minimal rocm join required at runtime
+  # We pass this to clang in its wrapper later.
+  # This is a separate join from the above because we don't
+  # need to pull in hsakmt and comgr at runtime, only build time.
+  rocmPath = symlinkJoin {
+    name = "rocm-path";
+    paths = with rocmPackages; [clr rocm-device-libs];
+  };
+
   cudatoolkit_joined = symlinkJoin {
     name = "cuda-merged";
 
