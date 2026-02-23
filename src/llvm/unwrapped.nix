@@ -36,6 +36,7 @@
   rocmGpuTargets ? lib.optionalString (rocmPackages ? clr.gpuTargets) (
     builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets
   ),
+  cudaPackages ? { },
   cudaSupport ? false,
   rocmSupport ? false,
   # TODO: Should there be a flag like config.levelZeroSupport?
@@ -81,6 +82,8 @@ let
       rocmSupport
       rocmGpuTargets
       nativeCpuSupport
+      rocmPackages
+      cudaPackages
       ;
   };
 in

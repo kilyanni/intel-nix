@@ -35,6 +35,7 @@
   symlinkJoin,
   ccacheStdenv,
   rocmPackages ? {},
+  cudaPackages ? {},
   level-zero,
   levelZeroSupport ? true,
   openclSupport ? true,
@@ -51,6 +52,10 @@
   version = "unstable-2025-11-14";
   date = "20251114";
   deps = callPackage ./deps.nix {};
+  vc-intrinsics-src = applyPatches {
+    src = deps.vc-intrinsics;
+    patches = [./patches/vc-intrinsics-install-dirs.patch];
+  };
   unified-runtime' = unified-runtime.override {
     inherit
       levelZeroSupport
@@ -59,6 +64,8 @@
       rocmSupport
       rocmGpuTargets
       nativeCpuSupport
+      rocmPackages
+      cudaPackages
       ;
   };
   srcOrig = applyPatches {
@@ -155,7 +162,7 @@ in
       (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
       (lib.cmakeBool "FETCHCONTENT_QUIET" false)
 
-      (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${deps.vc-intrinsics}")
+      (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${vc-intrinsics-src}")
 
       (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
     ];
@@ -227,34 +234,6 @@ in
               ]
               ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld");
 
-            postInstall =
-              ''
-                # LLVMSPIRVLib headers still install to $out/include (not covered by gnu-install-dirs)
-                if [ -d "$out/include/LLVMSPIRVLib" ]; then
-                  mv $out/include/LLVMSPIRVLib $dev/include/
-                  find $out/include -type d -empty -delete 2>/dev/null || true
-                fi
-              ''
-              + (old.postInstall or "");
-
-            postFixup =
-              (old.postFixup or "")
-              + ''
-                # Patch *.cmake and *.pc files to reference $dev/include instead of $out/include
-                find "$dev" -type f \( -name "*.cmake" -o -name "*.pc" \) \
-                  -exec sed -i \
-                    -e 's|'"$out"'/include|'"$dev"'/include|g' \
-                    -e 's|''${_IMPORT_PREFIX}/include|'$dev'/include|g' \
-                    {} +
-
-                # Patch executables in dev bin directory
-                if [ -d "$dev/bin" ]; then
-                  find "$dev/bin" -type f -executable \
-                    -exec sed -i \
-                      -e 's|'"$out"'/include|'"$dev"'/include|g' \
-                      {} + 2>/dev/null || true
-                fi
-              '';
           }
         );
       llvm-with-intree-spirv = llvm-base.overrideAttrs (oldAttrs: {
@@ -279,6 +258,13 @@ in
           ];
       });
     in {
+      # lld's upstream source already has ${CMAKE_INSTALL_LIBDIR}; nixpkgs' patch is stale
+      lld = llvmPrev.lld.overrideAttrs (old: {
+        patches = builtins.filter
+          (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
+          old.patches;
+      });
+
       # Override tblgen to not apply nixpkgs' clangPatches (gnu-install-dirs is pre-applied at monorepo level)
       tblgen =
         (llvmPrev.tblgen.override {

@@ -70,7 +70,8 @@ let
         rocmSupport,
         rocmGpuTargets,
         nativeCpuSupport,
-
+        rocmPackages ? {},
+        cudaPackages ? {},
       }:
 
       callPackage ./unified-runtime.nix {
@@ -82,6 +83,8 @@ let
           rocmSupport
           rocmGpuTargets
           nativeCpuSupport
+          rocmPackages
+          cudaPackages
           ;
         # This could theoretically be disabled if you for some reason
         # didn't want to build the backend, however OpenCL will get
