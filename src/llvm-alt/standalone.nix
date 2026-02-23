@@ -168,8 +168,7 @@ in
     ];
   })).overrideScope
   (
-    llvmFinal: llvmPrev:
-    let
+    llvmFinal: llvmPrev: let
       llvm-base =
         llvmPrev.libllvm.overrideAttrs
         (
@@ -231,9 +230,11 @@ in
 
                 # Disable benchmark to avoid C2y extension errors with __COUNTER__ in benchmark.h
                 "-DLLVM_INCLUDE_BENCHMARKS=OFF"
+
+                # TODO
+                # "-DBUG_REPORT_URL=https://github.com/NixOS/nixpkgs/issues"
               ]
               ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld");
-
           }
         );
       llvm-with-intree-spirv = llvm-base.overrideAttrs (oldAttrs: {
@@ -260,7 +261,8 @@ in
     in {
       # lld's upstream source already has ${CMAKE_INSTALL_LIBDIR}; nixpkgs' patch is stale
       lld = llvmPrev.lld.overrideAttrs (old: {
-        patches = builtins.filter
+        patches =
+          builtins.filter
           (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
           old.patches;
       });
@@ -297,42 +299,77 @@ in
       # Stage-1: cc-wrapper without libdevice. libdevice builds with this so it
       # can't be propagated here (cycle). Use clang-stage-1 as the build-time
       # compiler anywhere that libdevice is a (transitive) build input.
-      clang-stage-1 = (wrapCCWith {
-        cc = llvmFinal.clang-unwrapped;
-        extraBuildCommands = ''
-          rsrc="$out/resource-root"
-          mkdir "$rsrc"
-          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
-          ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
-          echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
-        '';
-      }).overrideAttrs (old: {
-        propagatedBuildInputs =
-          (old.propagatedBuildInputs or [])
-          ++ [
-            opencl-headers
-            llvmFinal.llvm
-            llvmFinal.sycl
-            llvmFinal.sycl-jit
-            llvmFinal.opencl-aot
-            llvmFinal.xpti
-            llvmFinal.xptifw
-          ];
-      });
+      clang-stage-1 =
+        (wrapCCWith {
+          cc = llvmFinal.clang-unwrapped;
+          extraBuildCommands = ''
+            rsrc="$out/resource-root"
+            mkdir "$rsrc"
+            echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
+            ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
+            echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
+          '';
+        }).overrideAttrs (old: {
+          propagatedBuildInputs =
+            (old.propagatedBuildInputs or [])
+            ++ [
+              opencl-headers
+              llvmFinal.llvm
+              llvmFinal.sycl
+              llvmFinal.sycl-jit
+              llvmFinal.opencl-aot
+              llvmFinal.xpti
+              llvmFinal.xptifw
+            ];
+        });
 
       # Stage-2: stage-1 + libdevice propagated. This is the public clang.
-      clang = llvmFinal.clang-stage-1.overrideAttrs (old: {
-        propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
-        passthru =
-          old.passthru
-          // {
-            inherit (llvmFinal) stdenv;
-            tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
-          };
-      });
+      clang =
+        ((llvmFinal.clang-stage-1.override (prev: {
+            extraBuildCommands =
+              prev.extraBuildCommands
+              + ''
+                mkdir -p $rsrc/lib
+                ln -s ${llvmFinal.libclc}/lib/clc $rsrc/lib/libclc
+                # echo " -fsycl-libspirv-path ${llvmFinal.libclc}/lib" >> $out/nix-support/cc-cflags
+              '';
+          })).overrideAttrs (old: {
+            propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
+            passthru =
+              old.passthru
+              // {
+                inherit (llvmFinal) stdenv;
+                tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
+              };
+          }))
+        // {
+          # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
+          # ccache.links does not forward hardeningUnsupportedFlagsByTargetPlatform
+          # from the unwrapped compiler. Without this, zerocallusedregs would
+          # re-enter defaultHardeningFlags in the rebuilt cc-wrapper and break
+          # downstream spir64 compilations.
+          #
+          # Additionally, clang.override rebuilds from wrapCCWith directly,
+          # bypassing the overrideAttrs layers that add libdevice, opencl-headers,
+          # llvm, sycl, etc. to propagatedBuildInputs. We restore them here so
+          # packages built with the ccache stdenv see the same inputs as with
+          # the non-ccache stdenv.
+          override = args:
+            (llvmFinal.clang-stage-1.override (
+              if args ? cc
+              then args // {cc = args.cc // {inherit (llvmFinal.clang-unwrapped) hardeningUnsupportedFlagsByTargetPlatform;};}
+              else args
+            )).overrideAttrs (_: {
+              propagatedBuildInputs = llvmFinal.clang.propagatedBuildInputs;
+            });
+        };
 
       # Stage-1: clang-tools without libdevice. libdevice builds with this.
-      clang-tools-stage-1 = llvmPrev.clang-tools.override {clang = llvmFinal.clang-stage-1;};
+      clang-tools-stage-1 =
+        llvmPrev.clang-tools.override
+        {
+          clang = llvmFinal.clang-stage-1;
+        };
 
       # Stage-2: clang-tools with libdevice propagated. SYCL tools like
       # clang-sycl-linker and clang-linker-wrapper need libdevice at runtime.
@@ -408,7 +445,11 @@ in
             "-DLLVM_INSTALL_UTILS=ON"
 
             # Intel's fork doesn't set LIBCLC_INSTALL_DIR for standalone builds (upstream does)
-            "-DLIBCLC_INSTALL_DIR=share/clc"
+            # "-DLIBCLC_INSTALL_DIR=share/clc"
+
+            "-DLIBCLC_GENERATE_REMANGLED_VARIANTS=ON"
+            (lib.cmakeFeature "LIBCLC_TARGETS_TO_BUILD" (lib.strings.concatStringsSep ";" ((lib.optional cudaSupport "nvptx64--nvidiacl") ++ (lib.optional rocmSupport "amdgcn--amdhsa"))))
+            (lib.cmakeBool "LIBCLC_NATIVECPU_HOST_TARGET" nativeCpuSupport)
           ];
 
           # Drop all nixpkgs patches (gnu-install-dirs is pre-applied at monorepo level,
