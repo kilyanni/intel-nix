@@ -10,8 +10,7 @@
   ccacheStdenv,
   stdenv,
   useCcache ? true,
-}:
-let
+}: let
   # This derivation uses makeScope to help with overriding.
   #
   # To override the source and other basics:
@@ -29,7 +28,6 @@ let
   #      .overrideAttrs { .. }
   #  })
   scope = lib.makeScope newScope (self: {
-
     # == Parameters for overriding ==
 
     llvmMajorVersion = "22";
@@ -59,21 +57,22 @@ let
     };
 
     inherit useCcache;
-    buildStdenv = if useCcache then ccacheStdenv else stdenv;
+    buildStdenv =
+      if useCcache
+      then ccacheStdenv
+      else stdenv;
 
     # ===============================
 
-    make-unified-runtime =
-      {
-        levelZeroSupport,
-        cudaSupport,
-        rocmSupport,
-        rocmGpuTargets,
-        nativeCpuSupport,
-        rocmPackages ? {},
-        cudaPackages ? {},
-      }:
-
+    make-unified-runtime = {
+      levelZeroSupport,
+      cudaSupport,
+      rocmSupport,
+      rocmGpuTargets,
+      nativeCpuSupport,
+      rocmPackages ? {},
+      cudaPackages ? {},
+    }:
       callPackage ./unified-runtime.nix {
         intel-llvm-src = self.src;
         inherit (self) buildStdenv;
@@ -93,7 +92,8 @@ let
       };
 
     unwrapped = callPackage ./unwrapped.nix {
-      inherit (self)
+      inherit
+        (self)
         llvmMajorVersion
         src
         version
@@ -114,12 +114,16 @@ let
           mkdir "$rsrc"
           echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
           ln -s "${lib.getLib self.unwrapped}/lib/clang/${self.llvmMajorVersion}/include" "$rsrc"
+          ${lib.concatStrings (lib.mapAttrsToList (k: v: ''
+              echo "export ${k}=${v}" >> $out/nix-support/setup-hook
+            '')
+            self.unwrapped.unified-runtime.setupVars)}
         '';
       }).overrideAttrs
-        (old: {
-          # OpenCL needs to be passed through
-          propagatedBuildInputs = old.propagatedBuildInputs ++ self.unwrapped.propagatedBuildInputs;
-        });
+      (old: {
+        # OpenCL needs to be passed through
+        propagatedBuildInputs = old.propagatedBuildInputs ++ self.unwrapped.propagatedBuildInputs;
+      });
 
     clang-tools-wrapper = callPackage ./clang-tools.nix {
       inherit (self) unwrapped wrapper;
@@ -142,15 +146,34 @@ let
         unwrapped.lib
       ];
 
-      passthru = self.unwrapped.passthru // {
-        inherit (self) stdenv;
-        unwrapped = self.unwrapped;
-        tests = callPackage ./tests.nix { inherit (self) stdenv; };
+      passthru =
+        self.unwrapped.passthru
+        // {
+          inherit (self) stdenv;
+          unwrapped = self.unwrapped;
+          tests = callPackage ./tests.nix {inherit (self) stdenv;};
 
-        overrideScope = newF: (self.overrideScope newF).merged;
-      };
+          overrideScope = newF: (self.overrideScope newF).merged;
+
+          # cc and override are required for stdenv adapters like ccacheStdenv.
+          # nixpkgs' useCcache does cc.override { cc = ccache.links { cc = cc.cc; }; },
+          # so merged must look like a cc-wrapper to it.
+          cc = self.unwrapped;
+          override = args:
+            (self.overrideScope (f: p: {
+              # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
+              # ccache.links does not forward hardeningUnsupportedFlags from the unwrapped
+              # compiler. Without this, zerocallusedregs would re-enter defaultHardeningFlags
+              # in the rebuilt cc-wrapper and break downstream spir64 compilations.
+              wrapper = p.wrapper.override (
+                if args ? cc
+                then args // {cc = args.cc // {hardeningUnsupportedFlags = self.unwrapped.hardeningUnsupportedFlags or [];};}
+                else args
+              );
+            })).merged;
+        };
     };
     stdenv = overrideCC self.unwrapped.baseLlvm.stdenv self.merged;
   });
 in
-scope.merged
+  scope.merged

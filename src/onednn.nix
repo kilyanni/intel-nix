@@ -61,7 +61,8 @@ in
       "doc"
     ];
 
-    nativeBuildInputs = [cmake]
+    nativeBuildInputs =
+      [cmake]
       ++ lib.optionals useSycl [gcc]
       # cuda_nvcc provides ptxas which the SYCL compiler uses to locate
       # libdevice.10.bc for GPU math functions. Needs to be native since
@@ -101,12 +102,12 @@ in
     # Patch SYCL.cmake to add --cuda-path so libdevice.10.bc can be found
     # Note: \${CUDA_TOOLKIT_ROOT_DIR} is a CMake variable (escaped from Nix)
     postPatch = lib.optionalString cudaSupport ''
-      substituteInPlace cmake/SYCL.cmake \
-        --replace-fail \
-          'suppress_warnings_for_nvidia_target()' \
-          'suppress_warnings_for_nvidia_target()
-    append(CMAKE_CXX_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")
-    append(CMAKE_CXX_FLAGS "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")'
+        substituteInPlace cmake/SYCL.cmake \
+          --replace-fail \
+            'suppress_warnings_for_nvidia_target()' \
+            'suppress_warnings_for_nvidia_target()
+      append(CMAKE_CXX_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")
+      append(CMAKE_CXX_FLAGS "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")'
     '';
 
     # Tests fail on some Hydra builders, because they do not support SSE4.2.

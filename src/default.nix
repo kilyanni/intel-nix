@@ -36,15 +36,16 @@
 
   llvm = llvm-monolithic;
 
-  mkCcacheIntelStdenv = llvm: ccacheStdenv.override {
-    stdenv = llvm.stdenv;
-  };
+  mkCcacheIntelStdenv = llvm:
+    ccacheStdenv.override {
+      stdenv = llvm.stdenv;
+    };
 
   # Wrap an llvm package set with a ccache stdenv (when useCcache is enabled),
   # mirroring the nixpkgs pattern where stdenv vs ccacheStdenv is a callsite decision.
   mkIntelLlvm = llvm:
     if useCcache && false
-    then llvm // { stdenv = mkCcacheIntelStdenv llvm; }
+    then llvm // {stdenv = mkCcacheIntelStdenv llvm;}
     else llvm;
 
   # ── Shared components ──────────────────────────────────────────────────────
@@ -59,17 +60,21 @@
   # ── Package set combinatorics ──────────────────────────────────────────────
   # Functions from backend args -> LLVM build for each toolchain variant
   baseToolchains = {
-    monolithic = args: llvm-monolithic.overrideScope (f: p: {
-      unwrapped = p.unwrapped.override args;
-    });
+    monolithic = args:
+      llvm-monolithic.overrideScope (f: p: {
+        unwrapped = p.unwrapped.override args;
+      });
     standalone = args: llvm-standalone.override args;
   };
 
   # Backend args passed to both the LLVM build and downstream packages
   backends = {
-    l0   = {};
+    l0 = {};
     rocm = {rocmSupport = true;};
-    cuda = {cudaSupport = true; cudaPackages = cudaPackages_13;};
+    cuda = {
+      cudaSupport = true;
+      cudaPackages = cudaPackages_13;
+    };
   };
 
   makePackages = llvm: backendArgs: let
@@ -86,14 +91,22 @@
     whisper-cpp = callPackage ./ggml/whisper-cpp.nix {inherit intel-llvm oneDNN oneMath;};
     llama-cpp = callPackage ./ggml/llama-cpp.nix {inherit intel-llvm oneDNN oneMath;};
     khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
-  in {llvm = intel-llvm; inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts;};
+  in {
+    llvm = intel-llvm;
+    inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts;
+  };
 
   # packages.${toolchain}.${backend}.${pkg}
-  packages = lib.mapAttrs (_: mkLlvm:
-    lib.mapAttrs (_: backendArgs:
-      makePackages (mkLlvm backendArgs) backendArgs
-    ) backends
-  ) baseToolchains;
+  packages =
+    lib.mapAttrs (
+      _: mkLlvm:
+        lib.mapAttrs (
+          _: backendArgs:
+            makePackages (mkLlvm backendArgs) backendArgs
+        )
+        backends
+    )
+    baseToolchains;
 in {
   # ── LLVM toolchains ────────────────────────────────────────────────────────
   inherit llvm-monolithic llvm-standalone;

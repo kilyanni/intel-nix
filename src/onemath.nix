@@ -65,14 +65,15 @@ in
       sha256 = "sha256-jVcrpne6OyOeUlQHg07zZXEyFXvEGCYW88sWnYgEeu8=";
     };
 
-    nativeBuildInputs = [
-      cmake
-      ninja
-    ]
-    # cuda_nvcc provides ptxas which the SYCL compiler uses to locate
-    # libdevice.10.bc for GPU math functions. Needs to be native since
-    # the compiler runs on the build machine.
-    ++ lib.optionals cudaSupport [cudaPackages.cuda_nvcc];
+    nativeBuildInputs =
+      [
+        cmake
+        ninja
+      ]
+      # cuda_nvcc provides ptxas which the SYCL compiler uses to locate
+      # libdevice.10.bc for GPU math functions. Needs to be native since
+      # the compiler runs on the build machine.
+      ++ lib.optionals cudaSupport [cudaPackages.cuda_nvcc];
 
     buildInputs =
       [
