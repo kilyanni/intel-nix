@@ -22,7 +22,7 @@
   # CUDA 13 dropped sm_60 support; minimum is sm_75 (Turing)
   cudaGpuArch ? "sm_75",
 }: let
-  version = "0.8";
+  version = "0.9";
   stdenv = intel-llvm.stdenv;
 
   cudatoolkit_joined = symlinkJoin {
@@ -62,7 +62,7 @@ in
       owner = "uxlfoundation";
       repo = "oneMath";
       rev = "v${version}";
-      sha256 = "sha256-xK8lKI3oqKlx3xtvdScpMq+HXAuoYCP0BZdkEqnJP5o=";
+      sha256 = "sha256-jVcrpne6OyOeUlQHg07zZXEyFXvEGCYW88sWnYgEeu8=";
     };
 
     nativeBuildInputs = [
@@ -87,7 +87,7 @@ in
         rocfft
         rocsolver
         rocrand
-        rocsparse
+        #rocsparse
       ])
       ++ lib.optionals cudaSupport [
         cudatoolkit_joined
@@ -129,7 +129,8 @@ in
         (lib.cmakeBool "ENABLE_ROCFFT_BACKEND" rocmSupport)
         (lib.cmakeBool "ENABLE_ROCSOLVER_BACKEND" rocmSupport)
         (lib.cmakeBool "ENABLE_ROCRAND_BACKEND" rocmSupport)
-        (lib.cmakeBool "ENABLE_ROCSPARSE_BACKEND" rocmSupport)
+        # Currently broken
+        # (lib.cmakeBool "ENABLE_ROCSPARSE_BACKEND" rocmSupport)
 
         (lib.cmakeBool "ENABLE_MKLCPU_THREAD_TBB" true)
 
