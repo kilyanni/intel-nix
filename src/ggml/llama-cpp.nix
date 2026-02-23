@@ -1,7 +1,6 @@
 {
   fetchFromGitHub,
   intel-llvm,
-  ccacheIntelStdenv,
   cmake,
   ninja,
   oneDNN,
@@ -14,10 +13,8 @@
   curl,
 }: let
   version = "b6524";
-  # stdenv = intel-llvm.stdenv;
-  stdenv = ccacheIntelStdenv;
 in
-  stdenv.mkDerivation {
+  intel-llvm.stdenv.mkDerivation {
     pname = "llama-cpp";
     inherit version;
 

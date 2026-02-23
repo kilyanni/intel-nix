@@ -2,20 +2,22 @@
   lib,
   fetchFromGitHub,
   intel-llvm,
-  ccacheIntelStdenv,
   python3,
   cmake,
   opencl-headers,
   ocl-icd,
   ninja,
   procps,
-  rocmPackages ? {},
-  target ? "amd",
-}: let
-  stdenv = intel-llvm.stdenv;
-  # stdenv = ccacheIntelStdenv;
-in
-  stdenv.mkDerivation (finalAttrs: {
+  cudaPackages ? {},
+  rocmSupport ? false,
+  cudaSupport ? false,
+  levelZeroSupport ? !(rocmSupport || cudaSupport),
+  # Arch passed to --offload-arch for ROCm
+  rocmOffloadArch ? "gfx1030",
+  # CUDA 13 dropped sm_60 support; minimum is sm_75 (Turing)
+  cudaGpuArch ? "sm_75",
+}:
+  intel-llvm.stdenv.mkDerivation (finalAttrs: {
     pname = "khronos-sycl-cts";
     version = "unstable-2025-09-19";
 
@@ -38,38 +40,35 @@ in
       ocl-icd
     ];
 
-    # hardeningDisable = [
-    #   "zerocallusedregs"
-    #   "pacret"
-    #   # "shadowstack"
-    # ];
-
     hardeningDisable = ["all"];
 
     cmakeFlags =
       [
-        # TODO: Make parameter
         (lib.cmakeFeature "SYCL_IMPLEMENTATION" "DPCPP")
         (lib.cmakeFeature "SYCL_CTS_EXCLUDE_TEST_CATEGORIES" "/build/disabled_categories")
       ]
-      ++ lib.optional (target == "amd") (lib.cmakeFeature "DPCPP_TARGET_TRIPLES" "amdgcn-amd-amdhsa");
+      ++ lib.optional rocmSupport (lib.cmakeFeature "DPCPP_TARGET_TRIPLES" "amdgcn-amd-amdhsa")
+      ++ lib.optional cudaSupport (lib.cmakeFeature "DPCPP_TARGET_TRIPLES" "nvptx64-nvidia-cuda");
 
     # We need to set this via the shell because it contains spaces
     preConfigure =
       ''
         touch /build/disabled_categories
       ''
-      + (lib.optionalString (target == "amd") ''
+      + lib.optionalString rocmSupport ''
         cmakeFlagsArray+=(
-          "-DDPCPP_FLAGS=-Xsycl-target-backend=amdgcn-amd-amdhsa;--offload-arch=gfx1030;--rocm-path=${rocmPackages.clr};--rocm-device-lib-path=${rocmPackages.rocm-device-libs}/amdgcn/bitcode"
+          "-DDPCPP_FLAGS=-Xsycl-target-backend=amdgcn-amd-amdhsa;--offload-arch=${rocmOffloadArch}"
         )
 
         cat << EOF > /build/disabled_categories
         atomic_ref
         EOF
-        # echo /build/disabled_categories
-        # exit 1
-      '');
+      ''
+      + lib.optionalString cudaSupport ''
+        cmakeFlagsArray+=(
+          "-DDPCPP_FLAGS=-Xsycl-target-backend=nvptx64-nvidia-cuda;--cuda-gpu-arch=${cudaGpuArch};--cuda-path=${cudaPackages.cuda_cudart}"
+        )
+      '';
 
     installPhase = ''
       runHook preInstall
@@ -86,7 +85,6 @@ in
         buildPhase = ''
           runHook preBuild
 
-          #cd /build/${finalAttrs.src.name}
           cd ..
           mkdir $out
           python ci/generate_exclude_filter.py --cmake-args "$cmakeFlags" --output $out/generated.filter --verbose DPCPP
@@ -94,7 +92,6 @@ in
           runHook postBuild
         '';
 
-        #dontConfigure = true;
         dontInstall = true;
       });
     };

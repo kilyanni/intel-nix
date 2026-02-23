@@ -2,7 +2,6 @@
   fetchFromGitHub,
   lib,
   intel-llvm,
-  ccacheIntelStdenv,
   cmake,
   ninja,
   mkl,
@@ -25,7 +24,6 @@
 }: let
   version = "0.8";
   stdenv = intel-llvm.stdenv;
-  # stdenv = ccacheIntelStdenv;
 
   cudatoolkit_joined = symlinkJoin {
     name = "cuda-toolkit-joined";

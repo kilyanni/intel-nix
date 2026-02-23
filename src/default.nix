@@ -6,11 +6,11 @@
   newScope,
   cudaPackages_13,
   fetchFromGitHub,
+  useCcache ? true,
 }: let
   # ── Base LLVM builds (level-zero, default backend) ────────────────────────
   llvm-monolithic = callPackage ./llvm/package.nix {
-    inherit newScope ccacheStdenv stdenv;
-    useCcache = true;
+    inherit newScope ccacheStdenv stdenv useCcache;
   };
 
   unified-runtime = callPackage ./llvm/unified-runtime.nix {
@@ -40,7 +40,12 @@
     stdenv = llvm.stdenv;
   };
 
-  ccacheIntelStdenv = mkCcacheIntelStdenv llvm;
+  # Wrap an llvm package set with a ccache stdenv (when useCcache is enabled),
+  # mirroring the nixpkgs pattern where stdenv vs ccacheStdenv is a callsite decision.
+  mkIntelLlvm = llvm:
+    if useCcache && false
+    then llvm // { stdenv = mkCcacheIntelStdenv llvm; }
+    else llvm;
 
   # ── Shared components ──────────────────────────────────────────────────────
   oneMath-sycl-blas = callPackage ./onemath-sycl-blas.nix {inherit llvm;};
@@ -68,28 +73,20 @@
   };
 
   makePackages = llvm: backendArgs: let
-    ccacheIntelStdenv = mkCcacheIntelStdenv llvm;
+    intel-llvm = mkIntelLlvm llvm;
     oneMath = callPackage ./onemath.nix (
-      {intel-llvm = llvm; inherit oneMath-sycl-blas ccacheIntelStdenv;}
+      {inherit intel-llvm oneMath-sycl-blas;}
       // backendArgs
     );
     oneDNN = callPackage ./onednn.nix (
-      {intel-llvm = llvm; inherit ccacheIntelStdenv;}
+      {inherit intel-llvm;}
       // backendArgs
     );
-    ggml = callPackage ./ggml/ggml.nix {
-      intel-llvm = llvm;
-      inherit ccacheIntelStdenv oneDNN oneMath;
-    };
-    whisper-cpp = callPackage ./ggml/whisper-cpp.nix {
-      intel-llvm = llvm;
-      inherit ccacheIntelStdenv oneDNN oneMath;
-    };
-    llama-cpp = callPackage ./ggml/llama-cpp.nix {
-      intel-llvm = llvm;
-      inherit ccacheIntelStdenv oneDNN oneMath;
-    };
-  in {inherit llvm oneMath oneDNN ggml whisper-cpp llama-cpp;};
+    ggml = callPackage ./ggml/ggml.nix {inherit intel-llvm oneDNN oneMath;};
+    whisper-cpp = callPackage ./ggml/whisper-cpp.nix {inherit intel-llvm oneDNN oneMath;};
+    llama-cpp = callPackage ./ggml/llama-cpp.nix {inherit intel-llvm oneDNN oneMath;};
+    khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
+  in {llvm = intel-llvm; inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts;};
 
   # packages.${toolchain}.${backend}.${pkg}
   packages = lib.mapAttrs (_: mkLlvm:
@@ -103,23 +100,18 @@ in {
   llvm = llvm-monolithic;
 
   # ── Shared / support components ────────────────────────────────────────────
-  inherit unified-runtime vc-intrinsics ccacheIntelStdenv;
+  inherit unified-runtime vc-intrinsics;
   inherit oneMath-sycl-blas oneMath-sycl-blas-tuned;
 
   oneapi-ck = callPackage ./oneapi-ck.nix {};
-
-  khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix {
-    intel-llvm = llvm;
-    inherit ccacheIntelStdenv;
-  };
 
   # ── Package sets ───────────────────────────────────────────────────────────
   # packages.${toolchain}.${backend}.${pkg}
   # toolchains: monolithic, standalone
   # backends:   l0, rocm, cuda
-  # pkgs:       oneMath, oneDNN, ggml, whisper-cpp, llama-cpp
+  # pkgs:       llvm, oneMath, oneDNN, ggml, whisper-cpp, llama-cpp, khronos-sycl-cts
   inherit packages;
 
   # ── Top-level aliases (monolithic + level-zero) ───────────────────────────
-  inherit (packages.monolithic.l0) oneMath oneDNN ggml whisper-cpp llama-cpp;
+  inherit (packages.monolithic.l0) oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts;
 }

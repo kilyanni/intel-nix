@@ -1,7 +1,6 @@
 {
   fetchFromGitHub,
   intel-llvm,
-  ccacheIntelStdenv,
   cmake,
   ninja,
   oneDNN,
@@ -11,11 +10,8 @@
   git,
   opencl-headers,
   ocl-icd,
-}: let
-  stdenv = intel-llvm.stdenv;
-  # stdenv = ccacheIntelStdenv;
-in
-  stdenv.mkDerivation {
+}:
+  intel-llvm.stdenv.mkDerivation {
     pname = "ggml";
     version = "unstable-2025-09-16";
 

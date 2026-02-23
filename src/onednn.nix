@@ -2,10 +2,8 @@
   cmake,
   fetchFromGitHub,
   lib,
-  stdenv,
   llvmPackages,
   intel-llvm,
-  ccacheIntelStdenv,
   gcc,
   onetbb,
   ocl-icd,
@@ -19,11 +17,7 @@
   cudaGpuArch ? "sm_75",
 }: let
   useSycl = levelZeroSupport || rocmSupport || cudaSupport;
-  stdenv =
-    if useSycl
-    then intel-llvm.stdenv
-    # then ccacheIntelStdenv
-    else stdenv;
+  stdenv = intel-llvm.stdenv;
 
   # Combined CUDA toolkit for compiler to find libdevice.10.bc
   cudatoolkit_joined = symlinkJoin {
