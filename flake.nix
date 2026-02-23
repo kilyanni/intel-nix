@@ -20,6 +20,7 @@
             (final: prev: {
               ccacheStdenv = prev.ccacheStdenv.override {
                 extraConfig = ''
+                  export CCACHE_MAXSIZE=10G
                   export CCACHE_COMPRESS=1
                   #export CCACHE_DIR="$ {config.programs.ccache.cacheDir}"
                   export CCACHE_DIR="/var/cache/ccache"
