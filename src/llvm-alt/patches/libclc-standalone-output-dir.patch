@@ -1,0 +1,13 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -91,7 +91,8 @@ endif()
+   endif()
+
+   # Setup the paths where libclc runtimes should be stored.
+-  set( LIBCLC_OUTPUT_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR} )
++  set( LIBCLC_OUTPUT_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/lib/clc )
++  file( MAKE_DIRECTORY ${LIBCLC_OUTPUT_LIBRARY_DIR} )
+   set( LIBCLC_INSTALL_DIR ${CMAKE_INSTALL_DATADIR}/clc )
+ else()
+   # In-tree configuration

@@ -1,5 +1,5 @@
 diff --git a/cmake/modules/SYCLLibdevice.cmake b/cmake/modules/SYCLLibdevice.cmake
-index cd9afa88506b..c267e7e755e5 100644
+index ab605b9685ff..86848437d382 100644
 --- a/cmake/modules/SYCLLibdevice.cmake
 +++ b/cmake/modules/SYCLLibdevice.cmake
 @@ -1,4 +1,8 @@
@@ -11,16 +11,16 @@ index cd9afa88506b..c267e7e755e5 100644
  set(obj_binary_dir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
  set(obj-new-offload_binary_dir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
  if (MSVC)
-@@ -77,7 +81,7 @@ if (WIN32)
+@@ -73,7 +77,7 @@ if (WIN32)
    list(APPEND compile_opts -D_ALLOW_ITERATOR_DEBUG_LEVEL_MISMATCH)
  endif()
  
 -add_custom_target(libsycldevice)
 +add_custom_target(libsycldevice ALL)
  
- set(filetypes obj obj-new-offload spv bc)
- set(filetypes_no_spv obj obj-new-offload bc)
-@@ -338,7 +342,7 @@ endfunction()
+ set(filetypes obj obj-new-offload bc)
+ 
+@@ -317,7 +321,7 @@ endfunction()
  # For native builds, sycl-compiler will already include everything we need.
  # For cross builds, we also need native versions of the tools.
  set(sycl-compiler_deps
@@ -29,7 +29,7 @@ index cd9afa88506b..c267e7e755e5 100644
    ${clang-offload-bundler_target} ${llvm-offload-binary_target}
    ${file-table-tform_target} ${llvm-foreach_target} ${llvm-spirv_target}
    ${sycl-post-link_target})
-@@ -347,7 +351,7 @@ set(complex_obj_deps device_complex.h device.h ${sycl-compiler_deps})
+@@ -326,7 +330,7 @@ set(complex_obj_deps device_complex.h device.h ${sycl-compiler_deps})
  set(cmath_obj_deps device_math.h device.h ${sycl-compiler_deps})
  set(imf_obj_deps device_imf.hpp imf_half.hpp imf_bf16.hpp imf_rounding_op.hpp imf_impl_utils.hpp device.h ${sycl-compiler_deps})
  set(itt_obj_deps device_itt.h spirv_vars.h device.h ${sycl-compiler_deps})
@@ -38,7 +38,7 @@ index cd9afa88506b..c267e7e755e5 100644
  if (NOT MSVC AND UR_SANITIZER_INCLUDE_DIR)
    set(asan_obj_deps
      device.h atomic.hpp spirv_vars.h
-@@ -908,4 +912,6 @@ add_custom_target(install-libsycldevice
+@@ -872,4 +876,6 @@ add_custom_target(install-libsycldevice
    COMMAND ${CMAKE_COMMAND} -DCMAKE_INSTALL_COMPONENT=libsycldevice -P ${CMAKE_BINARY_DIR}/cmake_install.cmake
    DEPENDS ${libsycldevice_build_targets}
  )

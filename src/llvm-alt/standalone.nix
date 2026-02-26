@@ -49,8 +49,8 @@
   # This is a decent speedup over GNU ld
   useLld ? true,
 }: let
-  version = "unstable-2025-11-14";
-  date = "20251114";
+  version = "unstable-2026-02-24";
+  date = "20260224";
   deps = callPackage ./deps.nix {};
   vc-intrinsics-src = applyPatches {
     src = deps.vc-intrinsics;
@@ -73,8 +73,8 @@
       owner = "intel";
       repo = "llvm";
       # tag = "v${version}";
-      rev = "ab3dc98de0fd1ada9df12b138de1e1f8b715cc27";
-      hash = "sha256-oHk8kQVNsyC9vrOsDqVoFLYl2yMMaTgpQnAW9iHZLfE=";
+      rev = "186cbd82259adde987b3e614708c7a91401d7652";
+      hash = "sha256-0ySX7G2OE0WixbgO3/IlaQn6YYa8wCGjR1xq3ylbR/U=";
     };
 
     patches = [
@@ -127,7 +127,7 @@ in
     officialRelease = null;
     gitRelease = {
       rev = srcOrig.rev;
-      rev-version = "22.0.0-unstable-2025-11-14";
+      rev-version = "22.0.0-unstable-2026-02-24";
     };
 
     monorepoSrc = src;
@@ -308,6 +308,19 @@ in
             echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
             ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
             echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
+
+            # The cc-wrapper saves PATH as path_backup, resets to minimal PATH
+            # for its own processing, then restores path_backup before exec-ing
+            # the real clang. clang's findProgramByName() searches path_backup.
+            #
+            # libllvm/bin is not in PATH by default. Inject it into path_backup
+            # so that findProgramByName("llvm-foreach"), ("llvm-link"), etc.
+            # find the SYCL offload tools when linking with -fsycl-targets.
+            for wrapper in "$out/bin/"*; do
+              if [[ -f "$wrapper" && -x "$wrapper" ]]; then
+                sed -i 's|path_backup="\$PATH"|path_backup="${llvmFinal.libllvm}/bin:$PATH"|' "$wrapper" 2>/dev/null || true
+              fi
+            done
           '';
         }).overrideAttrs (old: {
           propagatedBuildInputs =
@@ -330,8 +343,7 @@ in
               prev.extraBuildCommands
               + ''
                 mkdir -p $rsrc/lib
-                ln -s ${llvmFinal.libclc}/lib/clc $rsrc/lib/libclc
-                # echo " -fsycl-libspirv-path ${llvmFinal.libclc}/lib" >> $out/nix-support/cc-cflags
+                ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
               '';
           })).overrideAttrs (old: {
             propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
@@ -444,11 +456,8 @@ in
             "-DLLVM_BUILD_UTILS=ON"
             "-DLLVM_INSTALL_UTILS=ON"
 
-            # Intel's fork doesn't set LIBCLC_INSTALL_DIR for standalone builds (upstream does)
-            # "-DLIBCLC_INSTALL_DIR=share/clc"
-
             "-DLIBCLC_GENERATE_REMANGLED_VARIANTS=ON"
-            (lib.cmakeFeature "LIBCLC_TARGETS_TO_BUILD" (lib.strings.concatStringsSep ";" ((lib.optional cudaSupport "nvptx64--nvidiacl") ++ (lib.optional rocmSupport "amdgcn--amdhsa"))))
+            (lib.cmakeFeature "LIBCLC_TARGETS_TO_BUILD" (lib.strings.concatStringsSep ";" ((lib.optional cudaSupport "nvptx64--nvidiacl") ++ (lib.optional rocmSupport "amdgcn-amd-amdhsa"))))
             (lib.cmakeBool "LIBCLC_NATIVECPU_HOST_TARGET" nativeCpuSupport)
           ];
 
@@ -458,13 +467,12 @@ in
             ./patches/libclc-use-default-paths.patch
             ./patches/libclc-remangler.patch
             ./patches/libclc-find-clang.patch
-            ./patches/libclc-utils.patch
+            ./patches/libclc-standalone-output-dir.patch
           ];
 
-          preInstall = ''
-            # TODO: Figure out why this is needed
-            cp utils/prepare_builtins prepare_builtins
-          '';
+          # prepare_builtins was removed upstream; nixpkgs' postInstall still tries to install it
+          postInstall = "";
+          meta = builtins.removeAttrs old.meta ["mainProgram"];
         });
 
       spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (
@@ -540,6 +548,12 @@ in
             (lib.cmakeFeature "SYCL_COMPILER_VERSION" date)
 
             (lib.cmakeBool "SYCL_UR_USE_FETCH_CONTENT" false)
+
+            # LLVMConfig.cmake exports LLVM_TARGETS_TO_BUILD but not LLVM_HAS_*_TARGET.
+            # sycl/CMakeLists.txt uses these to set SYCL_EXT_ONEAPI_BACKEND_{HIP,CUDA}
+            # in feature_test.hpp, which gates inclusion of backend_traits_{hip,cuda}.hpp.
+            (lib.cmakeBool "LLVM_HAS_AMDGPU_TARGET" rocmSupport)
+            (lib.cmakeBool "LLVM_HAS_NVPTX_TARGET" cudaSupport)
           ]
           ++ unified-runtime'.cmakeFlags;
       });
@@ -560,7 +574,6 @@ in
             postBuild = ''
               rm $out/bin/clang
               ln -s $out/bin/clang++ $out/bin/clang
-              ln -s ${llvmFinal.libclc}/bin/prepare_builtins $out/bin/prepare_builtins
             '';
           };
         in {

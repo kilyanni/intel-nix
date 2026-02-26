@@ -18,6 +18,16 @@
 
           overlays = [
             (final: prev: {
+              unified-memory-framework = prev.unified-memory-framework.overrideAttrs {
+                version = "1.1.0";
+                src = prev.fetchFromGitHub {
+                  owner = "oneapi-src";
+                  repo = "unified-memory-framework";
+                  tag = "v1.1.0";
+                  hash = "sha256-1Z65rNsUNeaeSJmxwpEHPbiU4KEDvyrWL9LyAWFsR1c=";
+                };
+                patches = [];
+              };
               ccacheStdenv = prev.ccacheStdenv.override {
                 extraConfig = ''
                   export CCACHE_MAXSIZE=10G

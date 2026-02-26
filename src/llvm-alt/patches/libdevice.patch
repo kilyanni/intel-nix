@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c3388fee6cc8..e807073e5be0 100644
+index 1a45e5a8f846..68af16486ae5 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1,11 +1,16 @@
@@ -19,19 +19,16 @@ index c3388fee6cc8..e807073e5be0 100644
  set(UR_INTREE_SOURCE_DIR "${LLVM_SOURCE_DIR}/../unified-runtime")
  cmake_path(NORMAL_PATH UR_INTREE_SOURCE_DIR OUTPUT_VARIABLE UR_INTREE_SOURCE_DIR)
  
-@@ -35,20 +40,21 @@ if(NOT EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR})
+@@ -35,7 +40,7 @@ if(NOT EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR})
    get_host_tool_path(sycl-post-link SYCL_POST_LINK sycl-post-link_exe sycl-post-link_target)
    get_host_tool_path(llvm-link LLVM_LINK llvm-link_exe llvm-link_target)
  else()
 -  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link)
-+  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link prepare_builtins opt)
++  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link opt)
      find_program(LLVM_CUSTOM_TOOL_${tool} ${tool}
        PATHS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
      set(${tool}_exe ${LLVM_CUSTOM_TOOL_${tool}})
-     set(${tool}_target)
-   endforeach()
- endif()
- 
+@@ -46,7 +51,9 @@ endif()
  # Build libdevice for SYCL.
  include(SYCLLibdevice)
  
@@ -43,5 +40,3 @@ index c3388fee6cc8..e807073e5be0 100644
 +set(LIBDEVICE_LIBRARY_DIR ${CMAKE_INSTALL_LIBDIR})
 +set(LIBDEVICE_RUNTIME_DIR ${CMAKE_INSTALL_BINDIR})
  set(LIBDEVICE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
- 
--add_subdirectory(test)

@@ -2,7 +2,7 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index d7279207a918..54ef0bf1abe0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -61,6 +61,9 @@ if( LIBCLC_STANDALONE_BUILD OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DI
+@@ -61,5 +61,8 @@ if( LIBCLC_STANDALONE_BUILD OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DI
  
    find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_DIR}")
    include(AddLLVM)
