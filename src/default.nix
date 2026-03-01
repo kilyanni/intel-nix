@@ -44,7 +44,8 @@
   # Wrap an llvm package set with a ccache stdenv (when useCcache is enabled),
   # mirroring the nixpkgs pattern where stdenv vs ccacheStdenv is a callsite decision.
   mkIntelLlvm = llvm:
-    if useCcache && false
+    #if useCcache && false
+    if useCcache
     then llvm // {stdenv = mkCcacheIntelStdenv llvm;}
     else llvm;
 

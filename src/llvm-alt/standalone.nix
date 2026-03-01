@@ -294,6 +294,19 @@ in
               (old.passthru.hardeningUnsupportedFlagsByTargetPlatform tp)
               ++ ["zerocallusedregs"];
           };
+
+        # clang's SYCL offload toolchain finds helper tools via GetProgramPath("name"),
+        # which searches C.getDriver().Dir (= $out/bin) first, then PATH. nixpkgs
+        # applies getDev to propagatedBuildInputs, so llvmFinal.llvm becomes
+        # llvmFinal.llvm.dev (only llvm-config in bin) in downstream PATH — the PATH
+        # fallback fails. Symlinking here ensures reliable lookup regardless of PATH.
+        postInstall =
+          (old.postInstall or "")
+          + ''
+            ln -s ${llvmFinal.llvm}/bin/llvm-foreach $out/bin/llvm-foreach
+            ln -s ${llvmFinal.llvm}/bin/llvm-link $out/bin/llvm-link
+            ln -s ${llvmFinal.lld}/bin/lld $out/bin/lld
+          '';
       });
 
       # Stage-1: cc-wrapper without libdevice. libdevice builds with this so it
@@ -308,19 +321,6 @@ in
             echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
             ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
             echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
-
-            # The cc-wrapper saves PATH as path_backup, resets to minimal PATH
-            # for its own processing, then restores path_backup before exec-ing
-            # the real clang. clang's findProgramByName() searches path_backup.
-            #
-            # libllvm/bin is not in PATH by default. Inject it into path_backup
-            # so that findProgramByName("llvm-foreach"), ("llvm-link"), etc.
-            # find the SYCL offload tools when linking with -fsycl-targets.
-            for wrapper in "$out/bin/"*; do
-              if [[ -f "$wrapper" && -x "$wrapper" ]]; then
-                sed -i 's|path_backup="\$PATH"|path_backup="${llvmFinal.libllvm}/bin:$PATH"|' "$wrapper" 2>/dev/null || true
-              fi
-            done
           '';
         }).overrideAttrs (old: {
           propagatedBuildInputs =
@@ -366,11 +366,20 @@ in
           # llvm, sycl, etc. to propagatedBuildInputs. We restore them here so
           # packages built with the ccache stdenv see the same inputs as with
           # the non-ccache stdenv.
+          #
+          # We also re-apply the stage-2 resource-root addition (lib/libclc symlink)
+          # since clang-stage-1.override only has the include dir in its resource-root.
           override = args:
-            (llvmFinal.clang-stage-1.override (
-              if args ? cc
+            (llvmFinal.clang-stage-1.override (prev:
+              (if args ? cc
               then args // {cc = args.cc // {inherit (llvmFinal.clang-unwrapped) hardeningUnsupportedFlagsByTargetPlatform;};}
-              else args
+              else args) // {
+                extraBuildCommands =
+                  prev.extraBuildCommands + ''
+                    mkdir -p $rsrc/lib
+                    ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
+                  '';
+              }
             )).overrideAttrs (_: {
               propagatedBuildInputs = llvmFinal.clang.propagatedBuildInputs;
             });

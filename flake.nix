@@ -16,6 +16,9 @@
         pkgs = import nixpkgs {
           inherit system;
 
+          # For CUDA & MKL
+          config.allowUnfree = true;
+
           overlays = [
             (final: prev: {
               unified-memory-framework = prev.unified-memory-framework.overrideAttrs {

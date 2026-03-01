@@ -1,81 +1,43 @@
 diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
-index ff2db2b53782..e50c404bb48b 100644
 --- a/clang/lib/Driver/ToolChains/Clang.cpp
 +++ b/clang/lib/Driver/ToolChains/Clang.cpp
-@@ -50,6 +50,7 @@
- #include "llvm/Support/FileSystem.h"
- #include "llvm/Support/Path.h"
- #include "llvm/Support/Process.h"
-+#include "llvm/Support/Program.h"
- #include "llvm/Support/YAMLParser.h"
- #include "llvm/TargetParser/AArch64TargetParser.h"
- #include "llvm/TargetParser/ARMTargetParserCommon.h"
-@@ -10828,9 +10829,15 @@ void SPIRVTranslator::ConstructJob(Compilation &C, const JobAction &JA,
+@@ -10828,9 +10828,8 @@ void SPIRVTranslator::ConstructJob(Compilation &C, const JobAction &JA,
      for (auto &Arg : Cmd->getArguments())
        ForeachArgs.push_back(Arg);
- 
+
 -    SmallString<128> ForeachPath(C.getDriver().Dir);
 -    llvm::sys::path::append(ForeachPath, "llvm-foreach");
 -    const char *Foreach = C.getArgs().MakeArgString(ForeachPath);
-+    const char *Foreach;
-+    if (auto ForeachProgram = llvm::sys::findProgramByName("llvm-foreach")) {
-+      Foreach = C.getArgs().MakeArgString(*ForeachProgram);
-+    } else {
-+      // Fallback to old behavior for backward compatibility
-+      SmallString<128> ForeachPath(C.getDriver().Dir);
-+      llvm::sys::path::append(ForeachPath, "llvm-foreach");
-+      Foreach = C.getArgs().MakeArgString(ForeachPath);
-+    }
++    const char *Foreach = C.getArgs().MakeArgString(
++        getToolChain().GetProgramPath("llvm-foreach"));
      C.addCommand(std::make_unique<Command>(
          JA, *this, ResponseFileSupport::None(), Foreach, ForeachArgs,
          ArrayRef<InputInfo>{}));
 diff --git a/clang/lib/Driver/ToolChains/SYCL.cpp b/clang/lib/Driver/ToolChains/SYCL.cpp
-index 6089add6507e..e58bba7d92df 100644
 --- a/clang/lib/Driver/ToolChains/SYCL.cpp
 +++ b/clang/lib/Driver/ToolChains/SYCL.cpp
-@@ -13,6 +13,7 @@
- #include "llvm/SYCLLowerIR/DeviceConfigFile.hpp"
- #include "llvm/Support/CommandLine.h"
- #include "llvm/Support/Path.h"
-+#include "llvm/Support/Program.h"
- #include "llvm/Support/VirtualFileSystem.h"
- #include <sstream>
- 
-@@ -213,9 +214,15 @@ void SYCL::constructLLVMForeachCommand(Compilation &C, const JobAction &JA,
+@@ -213,9 +213,8 @@ void SYCL::constructLLVMForeachCommand(Compilation &C, const JobAction &JA,
    for (auto &Arg : InputCommand->getArguments())
      ForeachArgs.push_back(Arg);
- 
+
 -  SmallString<128> ForeachPath(C.getDriver().Dir);
 -  llvm::sys::path::append(ForeachPath, "llvm-foreach");
 -  const char *Foreach = C.getArgs().MakeArgString(ForeachPath);
-+  const char *Foreach;
-+  if (auto ForeachProgram = llvm::sys::findProgramByName("llvm-foreach")) {
-+    Foreach = C.getArgs().MakeArgString(*ForeachProgram);
-+  } else {
-+    // Fallback to old behavior for backward compatibility
-+    SmallString<128> ForeachPath(C.getDriver().Dir);
-+    llvm::sys::path::append(ForeachPath, "llvm-foreach");
-+    Foreach = C.getArgs().MakeArgString(ForeachPath);
-+  }
- 
++  const char *Foreach = C.getArgs().MakeArgString(
++      T->getToolChain().GetProgramPath("llvm-foreach"));
+
    auto Cmd = std::make_unique<Command>(JA, *T, ResponseFileSupport::None(),
                                         Foreach, ForeachArgs,
-@@ -901,9 +908,15 @@ const char *SYCL::Linker::constructLLVMLinkCommand(
+@@ -901,9 +901,8 @@ const char *SYCL::Linker::constructLLVMLinkCommand(
+       Objs.push_back(
            C.getArgs().MakeArgString(getToolChain().getInputFilename(II)));
- 
+
    // Get llvm-link path.
 -  SmallString<128> ExecPath(C.getDriver().Dir);
 -  llvm::sys::path::append(ExecPath, "llvm-link");
 -  const char *Exec = C.getArgs().MakeArgString(ExecPath);
-+  const char *Exec;
-+  if (auto LinkProgram = llvm::sys::findProgramByName("llvm-link")) {
-+    Exec = C.getArgs().MakeArgString(*LinkProgram);
-+  } else {
-+    // Fallback to old behavior for backward compatibility
-+    SmallString<128> ExecPath(C.getDriver().Dir);
-+    llvm::sys::path::append(ExecPath, "llvm-link");
-+    Exec = C.getArgs().MakeArgString(ExecPath);
-+  }
- 
++  const char *Exec = C.getArgs().MakeArgString(
++      getToolChain().GetProgramPath("llvm-link"));
+
    auto AddLinkCommand = [this, &C, &JA, Exec](const char *Output,
                                                const ArgStringList &Inputs,
