@@ -32,21 +32,18 @@
 
     llvmMajorVersion = "22";
 
-    version = "unstable-2025-11-14";
+    version = "unstable-2026-02-24";
 
     src = fetchFromGitHub {
       owner = "intel";
       repo = "llvm";
-      # Latest commit which doesn't require dependency versions newer than
-      # what's available in nixpkgs as of 2026-01-13.
-      # Commits after require newer level-zero and pre-release unified memory framework.
-      rev = "ab3dc98de0fd1ada9df12b138de1e1f8b715cc27";
-      hash = "sha256-oHk8kQVNsyC9vrOsDqVoFLYl2yMMaTgpQnAW9iHZLfE=";
+      rev = "186cbd82259adde987b3e614708c7a91401d7652";
+      hash = "sha256-0ySX7G2OE0WixbgO3/IlaQn6YYa8wCGjR1xq3ylbR/U=";
     };
 
     # If you override src, you'll probably also want to override this,
     # as some packages check for this date to decide what features the compiler supports
-    commitDate = "20251114";
+    commitDate = "20260224";
 
     vc-intrinsics-src = fetchFromGitHub {
       owner = "intel";
