@@ -1,13 +1,13 @@
 {
   fetchFromGitHub,
-  llvm,
+  intel-llvm,
   cmake,
   ninja,
   lib,
   # INTEL_GPU, NVIDIA_GPU, AMD_GPU
   gpuTarget ? "DEFAULT",
 }:
-llvm.stdenv.mkDerivation (finalAttrs: {
+intel-llvm.stdenv.mkDerivation (finalAttrs: {
   # TODO: Figure out how to name this for nix
   pname = "oneMath-sycl-blas";
   version = "unstable-2025-08-04";

@@ -44,19 +44,10 @@
   # Wrap an llvm package set with a ccache stdenv (when useCcache is enabled),
   # mirroring the nixpkgs pattern where stdenv vs ccacheStdenv is a callsite decision.
   mkIntelLlvm = llvm:
-    #if useCcache && false
+  #if useCcache && false
     if useCcache
     then llvm // {stdenv = mkCcacheIntelStdenv llvm;}
     else llvm;
-
-  # ── Shared components ──────────────────────────────────────────────────────
-  oneMath-sycl-blas = callPackage ./onemath-sycl-blas.nix {inherit llvm;};
-
-  oneMath-sycl-blas-tuned = {
-    intel = oneMath-sycl-blas.override {gpuTarget = "INTEL_GPU";};
-    nvidia = oneMath-sycl-blas.override {gpuTarget = "NVIDIA_GPU";};
-    amd = oneMath-sycl-blas.override {gpuTarget = "AMD_GPU";};
-  };
 
   # ── Package set combinatorics ──────────────────────────────────────────────
   # Functions from backend args -> LLVM build for each toolchain variant
@@ -80,10 +71,19 @@
 
   makePackages = llvm: backendArgs: let
     intel-llvm = mkIntelLlvm llvm;
+
+    oneMath-sycl-blas = callPackage ./onemath-sycl-blas.nix {inherit intel-llvm;};
+    oneMath-sycl-blas-tuned = {
+      intel = oneMath-sycl-blas.override {gpuTarget = "INTEL_GPU";};
+      nvidia = oneMath-sycl-blas.override {gpuTarget = "NVIDIA_GPU";};
+      amd = oneMath-sycl-blas.override {gpuTarget = "AMD_GPU";};
+    };
+
     oneMath = callPackage ./onemath.nix (
       {inherit intel-llvm oneMath-sycl-blas;}
       // backendArgs
     );
+
     oneDNN = callPackage ./onednn.nix (
       {inherit intel-llvm;}
       // backendArgs
@@ -94,7 +94,7 @@
     khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
   in {
     llvm = intel-llvm;
-    inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts;
+    inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts oneMath-sycl-blas oneMath-sycl-blas-tuned;
   };
 
   # packages.${toolchain}.${backend}.${pkg}
@@ -108,24 +108,22 @@
         backends
     )
     baseToolchains;
-in {
-  # ── LLVM toolchains ────────────────────────────────────────────────────────
-  inherit llvm-monolithic llvm-standalone;
-  llvm = llvm-monolithic;
+in
+  {
+    # ── LLVM toolchains ────────────────────────────────────────────────────────
+    inherit llvm-monolithic llvm-standalone;
+    llvm = llvm-monolithic;
 
-  # ── Shared / support components ────────────────────────────────────────────
-  inherit unified-runtime vc-intrinsics;
-  inherit oneMath-sycl-blas oneMath-sycl-blas-tuned;
+    # ── Shared / support components ────────────────────────────────────────────
+    inherit unified-runtime vc-intrinsics;
 
-  oneapi-ck = callPackage ./oneapi-ck.nix {};
+    oneapi-ck = callPackage ./oneapi-ck.nix {};
 
-  # ── Package sets ───────────────────────────────────────────────────────────
-  # packages.${toolchain}.${backend}.${pkg}
-  # toolchains: monolithic, standalone
-  # backends:   l0, rocm, cuda
-  # pkgs:       llvm, oneMath, oneDNN, ggml, whisper-cpp, llama-cpp, khronos-sycl-cts
-  inherit packages;
-
-  # ── Top-level aliases (monolithic + level-zero) ───────────────────────────
-  inherit (packages.monolithic.l0) oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts;
-}
+    # ── Package sets ───────────────────────────────────────────────────────────
+    # packages.${toolchain}.${backend}.${pkg}
+    # toolchains: monolithic, standalone
+    # backends:   l0, rocm, cuda
+    # pkgs:       llvm, oneMath, oneDNN, ggml, whisper-cpp, llama-cpp, khronos-sycl-cts
+    inherit packages;
+  }
+  // packages.monolithic.l0
