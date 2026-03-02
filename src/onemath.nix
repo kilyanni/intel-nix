@@ -107,9 +107,6 @@ in
 
     cmakeFlags =
       [
-        # (lib.cmakeFeature "CMAKE_C_COMPILER" "${llvm}/bin/clang")
-        # (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${llvm}/bin/clang++")
-
         # Requires closed source icpx + mkl
         (lib.cmakeBool "ENABLE_MKLCPU_BACKEND" useMKL)
         (lib.cmakeBool "ENABLE_MKLGPU_BACKEND" useMKL)

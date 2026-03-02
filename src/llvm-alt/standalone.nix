@@ -14,7 +14,6 @@
   spirv-headers,
   spirv-tools,
   applyPatches,
-  fetchpatch,
   libffi,
   libxml2,
   vc-intrinsics,
@@ -22,21 +21,16 @@
   libedit,
   wrapCCWith,
   overrideCC,
-  intel-compute-runtime,
-  intel-graphics-compiler,
   opencl-headers,
   ocl-icd,
   spirv-llvm-translator,
   pkg-config,
   python3,
   lit,
-  # TODO: llvmPackages.libcxx? libcxxStdenv?
-  libcxx,
   symlinkJoin,
   ccacheStdenv,
   rocmPackages ? {},
   cudaPackages ? {},
-  level-zero,
   levelZeroSupport ? true,
   openclSupport ? true,
   # Not yet working
@@ -44,7 +38,6 @@
   rocmSupport ? false,
   rocmGpuTargets ? builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets,
   nativeCpuSupport ? false,
-  useLibcxx ? false,
   useCcache ? true,
   # This is a decent speedup over GNU ld
   useLld ? true,
@@ -78,8 +71,6 @@
     };
 
     patches = [
-      # Fix hardcoded paths for llvm-foreach and llvm-link in SYCL toolchain
-      ./patches/sycl-path-lookup.patch
       # Fix hardcoded install paths (CMAKE_INSTALL_LIBDIR, etc.)
       ./patches/gnu-install-dirs.patch
       # Prevent cyclic deps from bundled cmake files in sycl-jit
@@ -102,22 +93,18 @@
       "aarch64" = "AArch64";
     }
     .${
-      stdenv.targetPlatform.parsed.cpu.name
+      stdenv.hostPlatform.parsed.cpu.name
     }
-      or (throw "Unsupported CPU architecture: ${stdenv.targetPlatform.parsed.cpu.name}");
+      or (throw "Unsupported CPU architecture: ${stdenv.hostPlatform.parsed.cpu.name}");
 
-  # TODO: Don't build targets not pulled in by *Support = true
+  # Always build AMDGPU, NVPTX, and SPIRV regardless of backend flags to
+  # avoid multiplying derivations by backend combination.
   targetsToBuild = "${hostTarget};SPIRV;AMDGPU;NVPTX";
 
-  stdenv = let
-    base =
-      if useLibcxx
-      then llvmPackages.libcxxStdenv
-      else llvmPackages.stdenv;
-  in
+  stdenv =
     if useCcache
-    then ccacheStdenv.override {stdenv = base;}
-    else base;
+    then ccacheStdenv.override {stdenv = llvmPackages.stdenv;}
+    else llvmPackages.stdenv;
 in
   (llvmPackages.override (_: {
     inherit stdenv;
@@ -141,7 +128,6 @@ in
     devExtraCmakeFlags = [
       "-DCMAKE_BUILD_TYPE=Release"
       "-DLLVM_ENABLE_ZSTD=FORCE_ON"
-      # TODO
       "-DLLVM_ENABLE_ZLIB=FORCE_ON"
       "-DLLVM_ENABLE_THREADS=ON"
 
@@ -150,12 +136,7 @@ in
       (lib.cmakeBool "LLVM_LINK_LLVM_DYLIB" false)
       (lib.cmakeBool "LLVM_BUILD_LLVM_DYLIB" false)
 
-      (lib.cmakeBool "LLVM_ENABLE_LIBCXX" useLibcxx)
-      (lib.cmakeFeature "CLANG_DEFAULT_CXX_STDLIB" (
-        if useLibcxx
-        then "libc++"
-        else "libstdc++"
-      ))
+      (lib.cmakeFeature "CLANG_DEFAULT_CXX_STDLIB" "libstdc++")
 
       (lib.cmakeFeature "SYCL_COMPILER_VERSION" date)
 
@@ -231,12 +212,18 @@ in
                 # Disable benchmark to avoid C2y extension errors with __COUNTER__ in benchmark.h
                 "-DLLVM_INCLUDE_BENCHMARKS=OFF"
 
-                # TODO
-                # "-DBUG_REPORT_URL=https://github.com/NixOS/nixpkgs/issues"
+                "-DBUG_REPORT_URL=https://github.com/NixOS/nixpkgs/issues"
               ]
               ++ lib.optional useLld (lib.cmakeFeature "LLVM_USE_LINKER" "lld");
           }
         );
+      # Shared shell fragment that adds libclc to the clang resource-root.
+      # Used in both the stage-2 clang definition and its override function.
+      libclcRsrcCmds = ''
+        mkdir -p $rsrc/lib
+        ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
+      '';
+
       llvm-with-intree-spirv = llvm-base.overrideAttrs (oldAttrs: {
         cmakeFlags =
           oldAttrs.cmakeFlags
@@ -329,7 +316,6 @@ in
               opencl-headers
               llvmFinal.llvm
               llvmFinal.sycl
-              llvmFinal.sycl-jit
               llvmFinal.opencl-aot
               llvmFinal.xpti
               llvmFinal.xptifw
@@ -338,52 +324,46 @@ in
 
       # Stage-2: stage-1 + libdevice propagated. This is the public clang.
       clang =
-        ((llvmFinal.clang-stage-1.override (prev: {
-            extraBuildCommands =
-              prev.extraBuildCommands
-              + ''
-                mkdir -p $rsrc/lib
-                ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
-              '';
-          })).overrideAttrs (old: {
-            propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
-            passthru =
-              old.passthru
-              // {
-                inherit (llvmFinal) stdenv;
-                tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
-              };
-          }))
-        // {
-          # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
-          # ccache.links does not forward hardeningUnsupportedFlagsByTargetPlatform
-          # from the unwrapped compiler. Without this, zerocallusedregs would
-          # re-enter defaultHardeningFlags in the rebuilt cc-wrapper and break
-          # downstream spir64 compilations.
-          #
-          # Additionally, clang.override rebuilds from wrapCCWith directly,
-          # bypassing the overrideAttrs layers that add libdevice, opencl-headers,
-          # llvm, sycl, etc. to propagatedBuildInputs. We restore them here so
-          # packages built with the ccache stdenv see the same inputs as with
-          # the non-ccache stdenv.
-          #
-          # We also re-apply the stage-2 resource-root addition (lib/libclc symlink)
-          # since clang-stage-1.override only has the include dir in its resource-root.
-          override = args:
-            (llvmFinal.clang-stage-1.override (prev:
-              (if args ? cc
-              then args // {cc = args.cc // {inherit (llvmFinal.clang-unwrapped) hardeningUnsupportedFlagsByTargetPlatform;};}
-              else args) // {
-                extraBuildCommands =
-                  prev.extraBuildCommands + ''
-                    mkdir -p $rsrc/lib
-                    ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
-                  '';
-              }
-            )).overrideAttrs (_: {
-              propagatedBuildInputs = llvmFinal.clang.propagatedBuildInputs;
-            });
-        };
+        (llvmFinal.clang-stage-1.override (prev: {
+          extraBuildCommands = prev.extraBuildCommands + libclcRsrcCmds;
+        })).overrideAttrs (old: {
+          propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
+          passthru =
+            old.passthru
+            // {
+              inherit (llvmFinal) stdenv;
+              tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
+
+              # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
+              # ccache.links does not forward hardeningUnsupportedFlagsByTargetPlatform
+              # from the unwrapped compiler. Without this, zerocallusedregs would
+              # re-enter defaultHardeningFlags in the rebuilt cc-wrapper and break
+              # downstream spir64 compilations.
+              #
+              # Additionally, clang.override rebuilds from wrapCCWith directly,
+              # bypassing the overrideAttrs layers that add libdevice, opencl-headers,
+              # llvm, sycl, etc. to propagatedBuildInputs. We restore them here so
+              # packages built with the ccache stdenv see the same inputs as with
+              # the non-ccache stdenv.
+              #
+              # We also re-apply the stage-2 resource-root addition (lib/libclc symlink)
+              # since clang-stage-1.override only has the include dir in its resource-root.
+              override = args:
+                (llvmFinal.clang-stage-1.override (
+                  prev:
+                    (
+                      if args ? cc
+                      then args // {cc = args.cc // {inherit (llvmFinal.clang-unwrapped) hardeningUnsupportedFlagsByTargetPlatform;};}
+                      else args
+                    )
+                    // {
+                      extraBuildCommands = prev.extraBuildCommands + libclcRsrcCmds;
+                    }
+                )).overrideAttrs (_: {
+                  propagatedBuildInputs = llvmFinal.clang.propagatedBuildInputs;
+                });
+            };
+        });
 
       # Stage-1: clang-tools without libdevice. libdevice builds with this.
       clang-tools-stage-1 =
@@ -481,7 +461,7 @@ in
 
           # prepare_builtins was removed upstream; nixpkgs' postInstall still tries to install it
           postInstall = "";
-          meta = builtins.removeAttrs old.meta ["mainProgram"];
+          meta = removeAttrs old.meta ["mainProgram"];
         });
 
       spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (
@@ -493,6 +473,9 @@ in
         in {
           src = src';
           sourceRoot = "${src'.name}/llvm-spirv";
+          # Intel's llvm-spirv fork diverges from upstream; nixpkgs' patches target
+          # the upstream version and must not be applied to the forked source.
+          patches = [];
         }
       );
 
