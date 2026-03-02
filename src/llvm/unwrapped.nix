@@ -188,7 +188,6 @@ in
           ${lib.optionalString cudaSupport "--cuda"} \
           ${lib.optionalString rocmSupport "--hip"} \
           ${lib.optionalString nativeCpuSupport "--native_cpu"} \
-          --use-lld \
           ${lib.optionalString levelZeroSupport "--l0-headers ${lib.getInclude level-zero}/include/level_zero"} \
           ${lib.optionalString levelZeroSupport "--l0-loader ${lib.getLib level-zero}/lib/libze_loader.so"} \
       )
@@ -208,6 +207,11 @@ in
     cmakeFlags =
       [
         (lib.cmakeBool "LLVM_INSTALL_UTILS" true)
+
+        # Use lld as the linker. We use LLVM_USE_LINKER instead of LLVM_ENABLE_LLD
+        # because LLVM_ENABLE_LLD causes HandleLLVMOptions.cmake to auto-set
+        # LLVM_USE_LINKER=lld, which then conflicts when xptifw re-includes that file.
+        (lib.cmakeFeature "LLVM_USE_LINKER" "lld")
 
         (lib.cmakeBool "LLVM_BUILD_TESTS" false)
         (lib.cmakeBool "LLVM_INCLUDE_TESTS" false)
