@@ -158,6 +158,18 @@ in
       substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
         --replace-fail "\''${clang_exe}" "${ccWrapperStub}/bin/clang++"
 
+      # The new Intel LLVM clang's addSYCLIncludeArgs early-exits when -nostdinc is present
+      # (which our nix cc-wrapper adds). This prevents stl_wrappers from being added to the
+      # include path for nativecpu_utils.bc compilation. Without stl_wrappers, <cassert>
+      # (included transitively via sycl/vector.hpp → common.hpp) resolves to the real C++
+      # cassert instead of the SYCL wrapper. The SYCL wrapper (stl_wrappers/cassert) is what
+      # includes spirv_vars.hpp, which declares __spirv_BuiltIn* functions needed in this file.
+      # Fix: explicitly add stl_wrappers to the nativecpu_utils.bc include search path.
+      substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
+        --replace-fail \
+          "-I \''${PROJECT_BINARY_DIR}/include -I \''${NATIVE_CPU_DIR}" \
+          "-I \''${PROJECT_BINARY_DIR}/include/sycl/stl_wrappers -I \''${PROJECT_BINARY_DIR}/include -I \''${NATIVE_CPU_DIR}"
+
       # When running without this, their CMake code copies files from the Nix store.
       # As the Nix store is read-only and COPY copies permissions by default,
       # this will lead to the copied files also being read-only.
