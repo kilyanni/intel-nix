@@ -43,8 +43,7 @@
 
   # Wrap an llvm package set with a ccache stdenv (when useCcache is enabled),
   # mirroring the nixpkgs pattern where stdenv vs ccacheStdenv is a callsite decision.
-  mkIntelLlvm = llvm:
-  #if useCcache && false
+  mkIntelLlvm = llvm: useCcache:
     if useCcache
     then llvm // {stdenv = mkCcacheIntelStdenv llvm;}
     else llvm;
@@ -69,8 +68,8 @@
     };
   };
 
-  makePackages = llvm: backendArgs: let
-    intel-llvm = mkIntelLlvm llvm;
+  makePackages = llvm: backendArgs: useCcache: let
+    intel-llvm = mkIntelLlvm llvm useCcache;
 
     oneMath-sycl-blas = callPackage ./onemath-sycl-blas.nix {inherit intel-llvm;};
     oneMath-sycl-blas-tuned = {
@@ -98,16 +97,19 @@
   };
 
   # packages.${toolchain}.${backend}.${pkg}
-  packages =
+  makePackageSets = useCcache:
     lib.mapAttrs (
       _: mkLlvm:
         lib.mapAttrs (
           _: backendArgs:
-            makePackages (mkLlvm backendArgs) backendArgs
+            makePackages (mkLlvm backendArgs) backendArgs useCcache
         )
         backends
     )
     baseToolchains;
+
+  packages = makePackageSets useCcache;
+  packages-no-ccache = makePackageSets false;
 in
   {
     # ── LLVM toolchains ────────────────────────────────────────────────────────
@@ -124,6 +126,6 @@ in
     # toolchains: monolithic, standalone
     # backends:   l0, rocm, cuda
     # pkgs:       llvm, oneMath, oneDNN, ggml, whisper-cpp, llama-cpp, khronos-sycl-cts
-    inherit packages;
+    inherit packages packages-no-ccache;
   }
   // packages.monolithic.l0
