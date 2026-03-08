@@ -2,7 +2,7 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 25d437f46f20..400633df95e5 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -39,6 +39,37 @@ if (NOT XPTI_PROXY_SRC)
+@@ -39,6 +39,48 @@ if (NOT XPTI_PROXY_SRC)
    set(XPTI_PROXY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../xpti/src/xpti_proxy.cpp)
  endif()
  
@@ -35,6 +35,17 @@ index 25d437f46f20..400633df95e5 100644
 +if(SYCL_ENABLE_EXTENSION_JIT AND NOT TARGET sycl-jit)
 +  add_custom_target(sycl-jit)
 +  add_custom_target(check-sycl-jit)
++endif()
++
++# In standalone builds, llvm-spirv and spirv-to-ir-wrapper are pre-built and
++# installed separately. Create dummy targets so add_custom_target(sycl-compiler
++# DEPENDS ... llvm-spirv ... spirv-to-ir-wrapper ...) succeeds; the actual
++# binaries are provided via PATH.
++if(NOT TARGET llvm-spirv)
++  add_custom_target(llvm-spirv)
++endif()
++if(NOT TARGET spirv-to-ir-wrapper)
++  add_custom_target(spirv-to-ir-wrapper)
 +endif()
 +
  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")

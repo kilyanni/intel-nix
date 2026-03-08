@@ -31,6 +31,23 @@
                 };
                 patches = [];
               };
+              # ccacheWrapper replaces cc.cc (the real compiler) with ccache.links
+              # but drops hardeningUnsupportedFlags* in the process, because
+              # cc-wrapper reads those attrs from the cc arg (which becomes
+              # ccache.links). Forward them from the original cc.cc so the
+              # cc-wrapper still sees the correct hardening constraints.
+              ccacheWrapper = prev.lib.makeOverridable ({ extraConfig, cc }:
+                cc.override {
+                  cc = (prev.ccache.links { inherit extraConfig; unwrappedCC = cc.cc; })
+                    // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlagsByTargetPlatform) {
+                      inherit (cc.cc) hardeningUnsupportedFlagsByTargetPlatform;
+                    }
+                    // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlags) {
+                      inherit (cc.cc) hardeningUnsupportedFlags;
+                    };
+                }
+              ) { extraConfig = ""; inherit (prev.stdenv) cc; };
+
               ccacheStdenv = prev.ccacheStdenv.override {
                 extraConfig = ''
                   export CCACHE_MAXSIZE=10G

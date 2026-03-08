@@ -23,7 +23,6 @@
   overrideCC,
   opencl-headers,
   ocl-icd,
-  spirv-llvm-translator,
   pkg-config,
   python3,
   lit,
@@ -209,6 +208,11 @@ in
               ++ [
                 "-DLLVM_BUILD_TOOLS=ON"
 
+                # spirv-to-ir-wrapper is built as a separate derivation against the
+                # out-of-tree spirv-llvm-translator (which itself needs llvm). Disabling
+                # it here breaks the in-tree cycle: llvm → spirv-to-ir-wrapper → libLLVMSPIRVLib → llvm.
+                (lib.cmakeBool "LLVM_TOOL_SPIRV_TO_IR_WRAPPER_BUILD" false)
+
                 # Disable benchmark to avoid C2y extension errors with __COUNTER__ in benchmark.h
                 "-DLLVM_INCLUDE_BENCHMARKS=OFF"
 
@@ -224,27 +228,13 @@ in
         ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
       '';
 
-      llvm-with-intree-spirv = llvm-base.overrideAttrs (oldAttrs: {
-        cmakeFlags =
-          oldAttrs.cmakeFlags
-          ++ [
-            "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv"
-            "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/${oldAttrs.src.name}/llvm-spirv"
+      # Shared shell fragment that adds libdevice's lib dir to cc-ldflags.
+      # Needed so -lsycl-devicelib-host is found at link time (e.g. cmake's
+      # check_cxx_compiler_flag("-fsycl") which links with -fsycl).
+      libdeviceLdflags = ''
+        echo " -L${llvmFinal.libdevice}/lib" >> $out/nix-support/cc-ldflags
+      '';
 
-            # These require clang, which we don't have at this point.
-            # TODO: Build these later, e.g. in passthru.tests
-            "-DLLVM_SPIRV_INCLUDE_TESTS=OFF"
-
-            "-DLLVM_SPIRV_ENABLE_LIBSPIRV_DIS=ON"
-          ];
-
-        buildInputs =
-          oldAttrs.buildInputs
-          ++ [
-            # For libspirv_dis
-            spirv-tools
-          ];
-      });
     in {
       # lld's upstream source already has ${CMAKE_INSTALL_LIBDIR}; nixpkgs' patch is stale
       lld = llvmPrev.lld.overrideAttrs (old: {
@@ -292,76 +282,53 @@ in
           + ''
             ln -s ${llvmFinal.llvm}/bin/llvm-foreach $out/bin/llvm-foreach
             ln -s ${llvmFinal.llvm}/bin/llvm-link $out/bin/llvm-link
+            ln -s ${llvmFinal.llvm}/bin/sycl-post-link $out/bin/sycl-post-link
+            ln -s ${llvmFinal.llvm}/bin/file-table-tform $out/bin/file-table-tform
             ln -s ${llvmFinal.lld}/bin/lld $out/bin/lld
+            ln -s ${llvmFinal.spirv-llvm-translator}/bin/llvm-spirv $out/bin/llvm-spirv
+            ln -s ${llvmFinal.spirv-to-ir-wrapper}/bin/spirv-to-ir-wrapper $out/bin/spirv-to-ir-wrapper
           '';
       });
 
       # Stage-1: cc-wrapper without libdevice. libdevice builds with this so it
       # can't be propagated here (cycle). Use clang-stage-1 as the build-time
       # compiler anywhere that libdevice is a (transitive) build input.
-      clang-stage-1 =
-        (wrapCCWith {
-          cc = llvmFinal.clang-unwrapped;
-          extraBuildCommands = ''
-            rsrc="$out/resource-root"
-            mkdir "$rsrc"
-            echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
-            ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
-            echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
-          '';
-        }).overrideAttrs (old: {
-          propagatedBuildInputs =
-            (old.propagatedBuildInputs or [])
-            ++ [
-              opencl-headers
-              llvmFinal.llvm
-              llvmFinal.sycl
-              llvmFinal.opencl-aot
-              llvmFinal.xpti
-              llvmFinal.xptifw
-            ];
-        });
+      clang-stage-1 = wrapCCWith {
+        cc = llvmFinal.clang-unwrapped;
+        extraBuildCommands = ''
+          rsrc="$out/resource-root"
+          mkdir "$rsrc"
+          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
+          ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
+          echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
+          echo " -L${llvmFinal.sycl}/lib" >> $out/nix-support/cc-ldflags
+        '';
+        # llvm-spirv and spirv-to-ir-wrapper were previously built in-tree; now
+        # that they're separate derivations, propagate them so downstream cmake
+        # -fsycl checks find them in PATH.
+        extraPackages = [
+          opencl-headers
+          llvmFinal.llvm
+          llvmFinal.sycl
+          llvmFinal.opencl-aot
+          llvmFinal.xpti
+          llvmFinal.xptifw
+          llvmFinal.spirv-llvm-translator
+          llvmFinal.spirv-to-ir-wrapper
+        ];
+      };
 
       # Stage-2: stage-1 + libdevice propagated. This is the public clang.
       clang =
         (llvmFinal.clang-stage-1.override (prev: {
-          extraBuildCommands = prev.extraBuildCommands + libclcRsrcCmds;
+          extraBuildCommands = prev.extraBuildCommands + libclcRsrcCmds + libdeviceLdflags;
+          extraPackages = prev.extraPackages ++ [llvmFinal.libdevice];
         })).overrideAttrs (old: {
-          propagatedBuildInputs = old.propagatedBuildInputs ++ [llvmFinal.libdevice];
           passthru =
             old.passthru
             // {
               inherit (llvmFinal) stdenv;
               tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
-
-              # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
-              # ccache.links does not forward hardeningUnsupportedFlagsByTargetPlatform
-              # from the unwrapped compiler. Without this, zerocallusedregs would
-              # re-enter defaultHardeningFlags in the rebuilt cc-wrapper and break
-              # downstream spir64 compilations.
-              #
-              # Additionally, clang.override rebuilds from wrapCCWith directly,
-              # bypassing the overrideAttrs layers that add libdevice, opencl-headers,
-              # llvm, sycl, etc. to propagatedBuildInputs. We restore them here so
-              # packages built with the ccache stdenv see the same inputs as with
-              # the non-ccache stdenv.
-              #
-              # We also re-apply the stage-2 resource-root addition (lib/libclc symlink)
-              # since clang-stage-1.override only has the include dir in its resource-root.
-              override = args:
-                (llvmFinal.clang-stage-1.override (
-                  prev:
-                    (
-                      if args ? cc
-                      then args // {cc = args.cc // {inherit (llvmFinal.clang-unwrapped) hardeningUnsupportedFlagsByTargetPlatform;};}
-                      else args
-                    )
-                    // {
-                      extraBuildCommands = prev.extraBuildCommands + libclcRsrcCmds;
-                    }
-                )).overrideAttrs (_: {
-                  propagatedBuildInputs = llvmFinal.clang.propagatedBuildInputs;
-                });
             };
         });
 
@@ -380,7 +347,7 @@ in
 
       stdenv = overrideCC llvmPackages.stdenv llvmFinal.clang;
 
-      libllvm = llvm-with-intree-spirv;
+      libllvm = llvm-base;
 
       opencl-aot = stdenv.mkDerivation (finalAttrs: {
         pname = "opencl-aot";
@@ -422,10 +389,13 @@ in
         llvmPrev.libclc.overrideAttrs
         (old: {
           nativeBuildInputs =
-            builtins.filter (
+            (builtins.filter (
               x: lib.getName x != "SPIRV-LLVM-Translator"
             )
-            old.nativeBuildInputs;
+            old.nativeBuildInputs)
+            # Replace nixpkgs' spirv-llvm-translator (built against LLVM 21) with
+            # our Intel fork built against Intel's LLVM.
+            ++ [llvmFinal.spirv-llvm-translator];
 
           buildInputs =
             old.buildInputs
@@ -446,7 +416,7 @@ in
             "-DLLVM_INSTALL_UTILS=ON"
 
             "-DLIBCLC_GENERATE_REMANGLED_VARIANTS=ON"
-            (lib.cmakeFeature "LIBCLC_TARGETS_TO_BUILD" (lib.strings.concatStringsSep ";" ((lib.optional cudaSupport "nvptx64--nvidiacl") ++ (lib.optional rocmSupport "amdgcn-amd-amdhsa"))))
+            (lib.cmakeFeature "LIBCLC_TARGETS_TO_BUILD" (lib.strings.concatStringsSep ";" ((lib.optional cudaSupport "nvptx64-nvidia-cuda") ++ (lib.optional rocmSupport "amdgcn-amd-amdhsa"))))
             (lib.cmakeBool "LIBCLC_NATIVECPU_HOST_TARGET" nativeCpuSupport)
           ];
 
@@ -464,20 +434,72 @@ in
           meta = removeAttrs old.meta ["mainProgram"];
         });
 
-      spirv-llvm-translator = spirv-llvm-translator.overrideAttrs (
-        oldAttrs: let
-          src' = runCommand "spirv-llvm-translator-src-${version}" {inherit (src) passthru;} ''
-            mkdir -p "$out"
-            cp -r ${src}/llvm-spirv "$out"
-          '';
-        in {
-          src = src';
-          sourceRoot = "${src'.name}/llvm-spirv";
-          # Intel's llvm-spirv fork diverges from upstream; nixpkgs' patches target
-          # the upstream version and must not be applied to the forked source.
-          patches = [];
-        }
-      );
+      spirv-llvm-translator = stdenv.mkDerivation (finalAttrs: {
+        pname = "spirv-llvm-translator";
+        inherit version;
+
+        src = runCommand "spirv-llvm-translator-src-${version}" {inherit (src) passthru;} ''
+          mkdir -p "$out"
+          cp -r ${src}/llvm-spirv "$out"
+        '';
+
+        sourceRoot = "${finalAttrs.src.name}/llvm-spirv";
+
+        nativeBuildInputs = [
+          cmake
+          ninja
+          llvmFinal.llvm.dev
+        ];
+
+        buildInputs = [
+          llvmFinal.llvm
+          spirv-headers
+          spirv-tools
+          zstd
+          zlib
+        ];
+
+        cmakeFlags = [
+          (lib.cmakeFeature "LLVM_DIR" "${llvmFinal.llvm.dev}/lib/cmake/llvm")
+          (lib.cmakeBool "LLVM_SPIRV_INCLUDE_TESTS" false)
+          (lib.cmakeBool "LLVM_SPIRV_ENABLE_LIBSPIRV_DIS" true)
+          (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
+        ];
+      });
+
+      spirv-to-ir-wrapper = stdenv.mkDerivation (finalAttrs: {
+        pname = "spirv-to-ir-wrapper";
+        inherit version;
+
+        src = runCommand "spirv-to-ir-wrapper-src-${version}" {inherit (src) passthru;} ''
+          mkdir -p "$out"
+          cp -r ${src}/llvm/tools/spirv-to-ir-wrapper "$out"
+        '';
+
+        sourceRoot = "${finalAttrs.src.name}/spirv-to-ir-wrapper";
+
+        patches = [./patches/spirv-to-ir-wrapper.patch];
+
+        nativeBuildInputs = [
+          cmake
+          ninja
+          llvmFinal.llvm.dev
+        ];
+
+        buildInputs = [
+          llvmFinal.llvm
+          llvmFinal.spirv-llvm-translator
+          zstd
+          zlib
+        ];
+
+        cmakeFlags = [
+          (lib.cmakeFeature "LLVM_DIR" "${llvmFinal.llvm.dev}/lib/cmake/llvm")
+          (lib.cmakeFeature "LLVM_SPIRV_INCLUDE_DIRS" "${llvmFinal.spirv-llvm-translator}/include/LLVMSPIRVLib")
+          (lib.cmakeFeature "LLVM_SPIRV_LIB" "${llvmFinal.spirv-llvm-translator}/lib/libLLVMSPIRVLib.a")
+          "-DLLVM_BUILD_TOOLS=ON"
+        ];
+      });
 
       sycl = stdenv.mkDerivation (finalAttrs: {
         pname = "sycl";
@@ -657,7 +679,7 @@ in
         cmakeFlags = [
           (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/cc")
           (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${stdenv.cc}/bin/c++")
-          (lib.cmakeFeature "LLVM_SPIRV_INCLUDE_DIRS" "${llvmFinal.llvm.dev}/include/LLVMSPIRVLib")
+          (lib.cmakeFeature "LLVM_SPIRV_INCLUDE_DIRS" "${llvmFinal.spirv-llvm-translator}/include/LLVMSPIRVLib")
           # SYCL_JIT_RESOURCE_DIR is set via cmakeFlagsArray in preConfigure
           # Tell get_host_tool_path where to find clang for resource compilation
           (lib.cmakeFeature "CLANG" "${llvmFinal.clang.cc}/bin/clang++")

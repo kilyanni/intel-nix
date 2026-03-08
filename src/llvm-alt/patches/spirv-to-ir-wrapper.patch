@@ -2,10 +2,37 @@ diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 9d3e94c99c7c..620327e201bd 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1,3 +1,6 @@
+@@ -1,14 +1,31 @@
++cmake_minimum_required(VERSION 3.13.4)
++project(spirv-to-ir-wrapper C CXX)
++
 +find_package(LLVM REQUIRED CONFIG)
 +include(AddLLVM)
++
++# LLVM_SPIRV_INCLUDE_DIRS: installed LLVMSPIRVLib headers directory
++# (e.g. ${spirv-llvm-translator}/include/LLVMSPIRVLib).
++# LLVM_SPIRV_LIB: path to libLLVMSPIRVLib.a
++# Required for standalone builds outside the LLVM monorepo.
++if(NOT DEFINED LLVM_SPIRV_INCLUDE_DIRS OR NOT DEFINED LLVM_SPIRV_LIB)
++  message(FATAL_ERROR "LLVM_SPIRV_INCLUDE_DIRS and LLVM_SPIRV_LIB must be set for standalone builds")
++endif()
 +
  set(LLVM_LINK_COMPONENTS
    BinaryFormat
    Core
+   Support
+-  SPIRVLib
+   )
+
+ include_directories(
+-  ${LLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR}/include
++  ${LLVM_SPIRV_INCLUDE_DIRS}
+   )
+
+ add_llvm_tool(spirv-to-ir-wrapper
+   spirv-to-ir-wrapper.cpp
+   )
++
++# SPIRVLib is not a standard LLVM cmake component; link explicitly against
++# the installed library from spirv-llvm-translator (absolute path via LLVM_SPIRV_LIB).
++target_link_libraries(spirv-to-ir-wrapper PRIVATE ${LLVM_SPIRV_LIB})
