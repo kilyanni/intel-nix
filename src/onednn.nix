@@ -46,13 +46,13 @@ in
   # https://github.com/uxlfoundation/oneDNN#oneapi-deep-neural-network-library-onednn
   stdenv.mkDerivation (finalAttrs: {
     pname = "oneDNN";
-    version = "3.10.1";
+    version = "3.11";
 
     src = fetchFromGitHub {
       owner = "uxlfoundation";
       repo = "oneDNN";
       rev = "v${finalAttrs.version}";
-      hash = "sha256-v1A9bOjcveTg97RBI2Y/gikoeQKYN8ZfFrqJmD3lVys=";
+      hash = "sha256-QXwgc/f4b6xl8yuzdtjaBHe5Z/gU9fhyVb2KltnkuDc=";
     };
 
     outputs = [
@@ -64,25 +64,23 @@ in
     nativeBuildInputs =
       [cmake]
       ++ lib.optionals useSycl [gcc]
-      # cuda_nvcc provides ptxas which the SYCL compiler uses to locate
-      # libdevice.10.bc for GPU math functions. Needs to be native since
-      # the compiler runs on the build machine.
       ++ lib.optionals cudaSupport [cudaPackages.cuda_nvcc];
 
-    buildInputs =
+    buildInputs = lib.optionals stdenv.hostPlatform.isDarwin [llvmPackages.openmp];
+
+    propagatedBuildInputs =
       lib.optionals useSycl [
         ocl-icd
         onetbb
       ]
-      ++ lib.optionals rocmSupport [
-        rocmPackages.clr # Provides HIP
-        rocmPackages.miopen
-        rocmPackages.rocblas
-      ]
       ++ lib.optionals cudaSupport [
         cudatoolkit_joined
       ]
-      ++ lib.optionals stdenv.hostPlatform.isDarwin [llvmPackages.openmp];
+      ++ lib.optionals rocmSupport [
+        rocmPackages.clr
+        rocmPackages.miopen
+        rocmPackages.rocblas
+      ];
 
     cmakeFlags =
       [
@@ -114,13 +112,34 @@ in
     doCheck = false;
 
     # Fixup bad cmake paths
-    postInstall = ''
-      substituteInPlace $out/lib/cmake/dnnl/dnnl-config.cmake \
-        --replace "\''${PACKAGE_PREFIX_DIR}/" ""
+    postInstall =
+      ''
+        substituteInPlace $out/lib/cmake/dnnl/dnnl-config.cmake \
+          --replace "\''${PACKAGE_PREFIX_DIR}/" ""
 
-      substituteInPlace $out/lib/cmake/dnnl/dnnl-targets.cmake \
-        --replace "\''${_IMPORT_PREFIX}/" ""
-    '';
+        substituteInPlace $out/lib/cmake/dnnl/dnnl-targets.cmake \
+          --replace "\''${_IMPORT_PREFIX}/" ""
+      ''
+      + lib.optionalString rocmSupport ''
+        # oneDNN exports legacy cmake target names that don't exist in ROCm 7.1.1:
+        #   HIP::HIP      → hip::host     (public HIP interface, hip-config-amd.cmake)
+        #   rocBLAS::rocBLAS → roc::rocblas (rocblas-config.cmake)
+        #   MIOpen::MIOpen   → MIOpen      (miopen-config.cmake, no namespace)
+        # Rename them in the targets file and add find_package calls so downstream
+        # consumers have the targets available when dnnl-targets.cmake is included.
+        substituteInPlace $out/lib/cmake/dnnl/dnnl-targets.cmake \
+          --replace-fail "HIP::HIP" "hip::host" \
+          --replace-fail "rocBLAS::rocBLAS" "roc::rocblas" \
+          --replace-fail "MIOpen::MIOpen" "MIOpen"
+
+        substituteInPlace $out/lib/cmake/dnnl/dnnl-config.cmake \
+          --replace-fail \
+            'include("''${CMAKE_CURRENT_LIST_DIR}/dnnl-targets.cmake")' \
+            'find_package(hip CONFIG QUIET)
+        find_package(rocblas CONFIG QUIET)
+        find_package(miopen CONFIG QUIET)
+        include("''${CMAKE_CURRENT_LIST_DIR}/dnnl-targets.cmake")'
+      '';
 
     meta = {
       changelog = "https://github.com/oneapi-src/oneDNN/releases/tag/v${finalAttrs.version}";
