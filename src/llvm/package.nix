@@ -107,10 +107,9 @@
         # This is needed for tools like clang-scan-deps to find headers.
         # The build commands here are the same as the vanilla LLVM derivation.
         extraBuildCommands = ''
-          rsrc="$out/resource-root"
-          mkdir "$rsrc"
-          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
-          ln -s "${lib.getLib self.unwrapped}/lib/clang/${self.llvmMajorVersion}/include" "$rsrc"
+          # Point resource-dir at the full lib/clang/{llvmMajorVersion} so both
+          # include/ (clang intrinsics) and lib/ (libclc .bc files for cuda/rocm) are found.
+          echo "-resource-dir=${lib.getLib self.unwrapped}/lib/clang/${self.llvmMajorVersion}" >> $out/nix-support/cc-cflags
           ${lib.concatStrings (lib.mapAttrsToList (k: v: ''
               echo "export ${k}=${v}" >> $out/nix-support/setup-hook
             '')
