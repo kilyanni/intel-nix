@@ -19,7 +19,6 @@
   vc-intrinsics,
   emhash,
   libedit,
-  wrapCCWith,
   overrideCC,
   opencl-headers,
   ocl-icd,
@@ -234,7 +233,6 @@ in
       libdeviceLdflags = ''
         echo " -L${llvmFinal.libdevice}/lib" >> $out/nix-support/cc-ldflags
       '';
-
     in {
       # lld's upstream source already has ${CMAKE_INSTALL_LIBDIR}; nixpkgs' patch is stale
       lld = llvmPrev.lld.overrideAttrs (old: {
@@ -293,30 +291,50 @@ in
       # Stage-1: cc-wrapper without libdevice. libdevice builds with this so it
       # can't be propagated here (cycle). Use clang-stage-1 as the build-time
       # compiler anywhere that libdevice is a (transitive) build input.
-      clang-stage-1 = wrapCCWith {
+      #
+      # We use llvmPrev.clang.override to inherit nixpkgs' wrapCCWith setup,
+      # which includes compiler-rt in the resource-root automatically.
+      # nixpkgs creates $rsrc/lib as a symlink to compiler-rt/lib (which has
+      # old linux/ naming). Intel LLVM also needs x86_64-unknown-linux-gnu/
+      # naming, so we reconstruct lib/ as a real dir with both naming schemes.
+      clang-stage-1 = llvmPrev.clang.override (prev: {
         cc = llvmFinal.clang-unwrapped;
-        extraBuildCommands = ''
-          rsrc="$out/resource-root"
-          mkdir "$rsrc"
-          echo "-resource-dir=$rsrc" >> $out/nix-support/cc-cflags
-          ln -s "${lib.getLib llvmFinal.libclang}/lib/clang/22/include" "$rsrc"
-          echo " -isystem ${llvmFinal.sycl}/include" >> $out/nix-support/cc-cflags
-          echo " -L${llvmFinal.sycl}/lib" >> $out/nix-support/cc-ldflags
-        '';
+        extraBuildCommands =
+          prev.extraBuildCommands
+          + ''
+            comprt_lib=$(readlink "$rsrc/lib")
+            rm "$rsrc/lib"
+            mkdir "$rsrc/lib"
+            ln -s "$comprt_lib/linux" "$rsrc/lib/linux"
+            mkdir "$rsrc/lib/x86_64-unknown-linux-gnu"
+            ln -s "$comprt_lib/linux/libclang_rt.builtins-x86_64.a" \
+              "$rsrc/lib/x86_64-unknown-linux-gnu/libclang_rt.builtins.a"
+            echo " -isystem ${llvmFinal.sycl}/include" >> "$out/nix-support/cc-cflags"
+            echo " -L${llvmFinal.sycl}/lib" >> "$out/nix-support/cc-ldflags"
+
+            ${
+              lib.concatStrings (lib.mapAttrsToList (k: v: ''
+                  echo "export ${k}=${v}" >> $out/nix-support/setup-hook
+                '')
+                unified-runtime'.setupVars)
+            }
+          '';
         # llvm-spirv and spirv-to-ir-wrapper were previously built in-tree; now
         # that they're separate derivations, propagate them so downstream cmake
         # -fsycl checks find them in PATH.
-        extraPackages = [
-          opencl-headers
-          llvmFinal.llvm
-          llvmFinal.sycl
-          llvmFinal.opencl-aot
-          llvmFinal.xpti
-          llvmFinal.xptifw
-          llvmFinal.spirv-llvm-translator
-          llvmFinal.spirv-to-ir-wrapper
-        ];
-      };
+        extraPackages =
+          prev.extraPackages
+          ++ [
+            opencl-headers
+            llvmFinal.llvm
+            llvmFinal.sycl
+            llvmFinal.opencl-aot
+            llvmFinal.xpti
+            llvmFinal.xptifw
+            llvmFinal.spirv-llvm-translator
+            llvmFinal.spirv-to-ir-wrapper
+          ];
+      });
 
       # Stage-2: stage-1 + libdevice propagated. This is the public clang.
       clang =
@@ -390,9 +408,9 @@ in
         (old: {
           nativeBuildInputs =
             (builtins.filter (
-              x: lib.getName x != "SPIRV-LLVM-Translator"
-            )
-            old.nativeBuildInputs)
+                x: lib.getName x != "SPIRV-LLVM-Translator"
+              )
+              old.nativeBuildInputs)
             # Replace nixpkgs' spirv-llvm-translator (built against LLVM 21) with
             # our Intel fork built against Intel's LLVM.
             ++ [llvmFinal.spirv-llvm-translator];
