@@ -35,7 +35,13 @@ in
         substituteInPlace src/parseopt.c \
           --replace-fail "char *parseopt_program_doc;" "extern char *parseopt_program_doc;" \
           --replace-fail "char *parseopt_program_args;" "extern char *parseopt_program_args;"
+
+        # GCC>=14 treats 'bool' as a keyword even in gnu17 mode; rename the
+        # struct member to avoid the parse error.
+        sed -i 's/\bbool\b/gdbm_bool/g' src/var.c
       '';
+    env.NIX_CFLAGS_COMPILE = "-Wno-incompatible-pointer-types";
+
     configureFlags = ["--enable-libgdbm-compat"];
 
     postInstall = ''

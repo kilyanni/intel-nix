@@ -1,6 +1,6 @@
 {
   lib,
-  stdenv,
+  gcc13Stdenv,
   fetchFromGitHub,
   cmake,
   ninja,
@@ -8,7 +8,7 @@
   python3,
   spirv-headers,
 }:
-stdenv.mkDerivation (finalAttrs: {
+gcc13Stdenv.mkDerivation (finalAttrs: {
   pname = "opencl-clang";
   version = "14.0.2";
 
@@ -36,11 +36,6 @@ stdenv.mkDerivation (finalAttrs: {
     })
   ];
 
-  #postUnpack = ''
-  #  mv source/SPIRV-LLVM-Translator source/llvm
-  #  mv source/opencl-clang source/llvm
-  #'';
-
   nativeBuildInputs = [
     cmake
     ninja
@@ -53,26 +48,20 @@ stdenv.mkDerivation (finalAttrs: {
   ];
 
   preConfigure = ''
-    chmod -R u+w /build/llvm-project/
+    # sourceRoot is llvm-project/llvm; chmod the whole llvm-project tree
+    chmod -R u+w ..
   '';
 
-  sourceRoot = "/build/llvm-project/llvm";
+  sourceRoot = "llvm-project/llvm";
 
   cmakeFlags = [
-    "-DLLVM_TARGETS_TO_BUILD='X86'"
-    "-DLLVM_ENABLE_PROJECTS='clang'"
-    "-DLLVM_EXTERNAL_PROJECTS='llvm-spirv;opencl-clang'"
-    "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR='/build/SPIRV-LLVM-Translator'"
-    "-DLLVM_EXTERNAL_OPENCL_CLANG_SOURCE_DIR='/build/opencl-clang'"
+    "-DLLVM_TARGETS_TO_BUILD=X86"
+    "-DLLVM_ENABLE_PROJECTS=clang"
+    "-DLLVM_EXTERNAL_PROJECTS=llvm-spirv;opencl-clang"
+    "-DLLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR=/build/SPIRV-LLVM-Translator"
+    "-DLLVM_EXTERNAL_OPENCL_CLANG_SOURCE_DIR=/build/opencl-clang"
     (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
-
     "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
-
-    #"-DPREFERRED_LLVM_VERSION=${lib.getVersion llvm}"
-    #"-DOPENCL_HEADERS_DIR=${lib.getLib libclang}/lib/clang/${lib.getVersion libclang}/include/"
-
-    #"-DLLVMSPIRV_INCLUDED_IN_LLVM=OFF"
-    #"-DSPIRV_TRANSLATOR_DIR=${spirv-llvm-translator'}"
   ];
 
   meta = {
