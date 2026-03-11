@@ -97,15 +97,24 @@ in
         (lib.cmakeFeature "CUDA_DRIVER_LIBRARY" "${cudaPackages.cuda_cudart}/lib/stubs/libcuda.so")
       ];
 
-    # Patch SYCL.cmake to add --cuda-path so libdevice.10.bc can be found
-    # Note: \${CUDA_TOOLKIT_ROOT_DIR} is a CMake variable (escaped from Nix)
+    # Patch SYCL.cmake to add --cuda-path so libdevice.10.bc can be found.
+    # \${CUDA_TOOLKIT_ROOT_DIR} is a cmake variable ref (Nix ''$ + shell '\''
+    # produce literal \${...} in the cmake file; cmake drops the \ and expands).
+    # --cuda-path must also be in SHARED/EXE_LINKER_FLAGS: the SYCL device link
+    # step (building libdnnl.so) uses CMAKE_SHARED_LINKER_FLAGS, not CXX_FLAGS,
+    # and CudaInstallationDetector needs --cuda-path to populate LibDeviceMap so
+    # addSYCLDeviceLibs finds libdevice.10.bc for the NVPTX llvm-link step.
+    # (BoundArch defaults to sm_75 per LLVM driver, so --cuda-gpu-arch not needed
+    # in linker flags.)
     postPatch = lib.optionalString cudaSupport ''
         substituteInPlace cmake/SYCL.cmake \
           --replace-fail \
             'suppress_warnings_for_nvidia_target()' \
             'suppress_warnings_for_nvidia_target()
       append(CMAKE_CXX_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")
-      append(CMAKE_CXX_FLAGS "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")'
+      append(CMAKE_CXX_FLAGS "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")
+      append(CMAKE_SHARED_LINKER_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")
+      append(CMAKE_EXE_LINKER_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")'
     '';
 
     # Tests fail on some Hydra builders, because they do not support SSE4.2.
