@@ -87,13 +87,14 @@
       {inherit intel-llvm;}
       // backendArgs
     );
+    syclcompat = callPackage ./syclcompat.nix {};
     ggml = callPackage ./ggml/ggml.nix {inherit intel-llvm oneDNN oneMath;};
-    whisper-cpp = callPackage ./ggml/whisper-cpp.nix {inherit intel-llvm oneDNN oneMath;};
+    whisper-cpp = callPackage ./ggml/whisper-cpp.nix ({inherit intel-llvm oneDNN oneMath syclcompat;} // lib.intersectAttrs {rocmSupport = null; cudaSupport = null;} backendArgs);
     llama-cpp = callPackage ./ggml/llama-cpp.nix {inherit intel-llvm oneDNN oneMath;};
     khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
   in {
     llvm = intel-llvm;
-    inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts oneMath-sycl-blas oneMath-sycl-blas-tuned;
+    inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts oneMath-sycl-blas oneMath-sycl-blas-tuned syclcompat;
   };
 
   # packages.${toolchain}.${backend}.${pkg}
