@@ -31,7 +31,6 @@
   cudaPackages ? {},
   levelZeroSupport ? true,
   openclSupport ? true,
-  # Not yet working
   cudaSupport ? false,
   rocmSupport ? false,
   rocmGpuTargets ? builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets,
@@ -95,8 +94,8 @@
     }
       or (throw "Unsupported CPU architecture: ${stdenv.hostPlatform.parsed.cpu.name}");
 
-  # Always build AMDGPU, NVPTX, and SPIRV regardless of backend flags to
-  # avoid multiplying derivations by backend combination.
+  # These are rather cheap and don't require any additional dependencies.
+  # As such, if be always build all three we save needing to build llvm thrice.
   targetsToBuild = "${hostTarget};SPIRV;AMDGPU;NVPTX";
 
   stdenv =
@@ -209,10 +208,10 @@ in
 
                 # spirv-to-ir-wrapper is built as a separate derivation against the
                 # out-of-tree spirv-llvm-translator (which itself needs llvm). Disabling
-                # it here breaks the in-tree cycle: llvm → spirv-to-ir-wrapper → libLLVMSPIRVLib → llvm.
+                # it here breaks the in-tree cycle: llvm -> spirv-to-ir-wrapper -> libLLVMSPIRVLib -> llvm.
                 (lib.cmakeBool "LLVM_TOOL_SPIRV_TO_IR_WRAPPER_BUILD" false)
 
-                # Disable benchmark to avoid C2y extension errors with __COUNTER__ in benchmark.h
+                # These caused build issues, bodge
                 "-DLLVM_INCLUDE_BENCHMARKS=OFF"
 
                 "-DBUG_REPORT_URL=https://github.com/NixOS/nixpkgs/issues"
@@ -234,7 +233,7 @@ in
         echo " -L${llvmFinal.libdevice}/lib" >> $out/nix-support/cc-ldflags
       '';
     in {
-      # lld's upstream source already has ${CMAKE_INSTALL_LIBDIR}; nixpkgs' patch is stale
+      # gnu-install-dirs is pre-applied at monorepo level, so filter it out here
       lld = llvmPrev.lld.overrideAttrs (old: {
         patches =
           builtins.filter
@@ -242,7 +241,7 @@ in
           old.patches;
       });
 
-      # Override tblgen to not apply nixpkgs' clangPatches (gnu-install-dirs is pre-applied at monorepo level)
+      # gnu-install-dirs is pre-applied at monorepo level, so filter it out here
       tblgen =
         (llvmPrev.tblgen.override {
           clangPatches = [];
@@ -255,8 +254,6 @@ in
             ];
         });
 
-      # Override buildLlvmPackages so libllvm uses our tblgen (built from Intel's source)
-      # instead of the one from otherSplices.selfBuildHost (nixpkgs' original)
       buildLlvmPackages = llvmFinal;
 
       # SYCL cross-compiles to SPIR-V which doesn't support zerocallusedregs;
@@ -273,10 +270,12 @@ in
         # clang's SYCL offload toolchain finds helper tools via GetProgramPath("name"),
         # which searches C.getDriver().Dir (= $out/bin) first, then PATH. nixpkgs
         # applies getDev to propagatedBuildInputs, so llvmFinal.llvm becomes
-        # llvmFinal.llvm.dev (only llvm-config in bin) in downstream PATH — the PATH
+        # llvmFinal.llvm.dev (only llvm-config in bin) in downstream PATH thus the PATH
         # fallback fails. Symlinking here ensures reliable lookup regardless of PATH.
         postInstall =
           (old.postInstall or "")
+          # TODO: We need to symlink more tools (maybe just for-loop over all tools?)
+          #       Or patch the lookup logic in clang itself
           + ''
             ln -s ${llvmFinal.llvm}/bin/llvm-foreach $out/bin/llvm-foreach
             ln -s ${llvmFinal.llvm}/bin/llvm-link $out/bin/llvm-link
@@ -289,8 +288,7 @@ in
       });
 
       # Stage-1: cc-wrapper without libdevice. libdevice builds with this so it
-      # can't be propagated here (cycle). Use clang-stage-1 as the build-time
-      # compiler anywhere that libdevice is a (transitive) build input.
+      # can't be propagated here (cycle).
       #
       # We use llvmPrev.clang.override to inherit nixpkgs' wrapCCWith setup,
       # which includes compiler-rt in the resource-root automatically.
@@ -319,9 +317,7 @@ in
                 unified-runtime'.setupVars)
             }
           '';
-        # llvm-spirv and spirv-to-ir-wrapper were previously built in-tree; now
-        # that they're separate derivations, propagate them so downstream cmake
-        # -fsycl checks find them in PATH.
+
         extraPackages =
           prev.extraPackages
           ++ [
@@ -592,10 +588,6 @@ in
 
       libdevice = stdenv.mkDerivation (
         finalAttrs: let
-          # Uses the cc-wrapper (clang-stage-1) intentionally: the rm/ln -s trick
-          # replaces the `clang` wrapper script with `clang++`'s, so anything invoking
-          # `clang` gets C++ mode. This wouldn't work with clang.cc (raw binary) since
-          # argv[0] determines mode regardless of symlink target.
           tools = symlinkJoin {
             name = "libdevice-tools";
             paths = [
@@ -637,7 +629,7 @@ in
             (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
             "-DLLVM_TOOLS_DIR=${llvmFinal.llvm}/bin"
             "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools-stage-1}/bin"
-            # Despite being in libdevice, this flag is called LIBCLC_
+            # Despite being in libdevice, this flag is called LIBCLC_, this is not a typo.
             "-DLIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR=${tools}/bin"
             "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
           ];
@@ -672,9 +664,6 @@ in
           zlib
         ];
 
-        # Stage resource files (sycl headers, OpenCL headers, clang resource
-        # headers) into a directory that generate.py will embed into the
-        # sycl-jit library via C23 #embed.
         preConfigure = ''
           resourceDir=$TMPDIR/jit-resources
           mkdir -p $resourceDir/include
@@ -698,22 +687,18 @@ in
           (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/cc")
           (lib.cmakeFeature "CMAKE_CXX_COMPILER" "${stdenv.cc}/bin/c++")
           (lib.cmakeFeature "LLVM_SPIRV_INCLUDE_DIRS" "${llvmFinal.spirv-llvm-translator}/include/LLVMSPIRVLib")
-          # SYCL_JIT_RESOURCE_DIR is set via cmakeFlagsArray in preConfigure
-          # Tell get_host_tool_path where to find clang for resource compilation
           (lib.cmakeFeature "CLANG" "${llvmFinal.clang.cc}/bin/clang++")
           (lib.cmakeFeature "LLVM_HOST_TRIPLE" stdenv.hostPlatform.config)
           (lib.cmakeFeature "LLVM_TARGETS_TO_BUILD" targetsToBuild)
         ];
 
-        # Sycl headers include path (for sycl/detail/string.hpp)
         env.NIX_CFLAGS_COMPILE = "-isystem /build/${finalAttrs.src.name}/sycl/include";
       });
 
-      # Override libclang to use Intel's source with gnu-install-dirs pre-applied at monorepo level
       libclang =
         llvmPrev.libclang.overrideAttrs
         (old: {
-          # gnu-install-dirs is already applied at the monorepo level (srcOrig)
+          # gnu-install-dirs is already applied at the monorepo level
           patches =
             builtins.filter
             (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
