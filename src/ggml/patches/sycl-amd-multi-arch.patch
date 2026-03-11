@@ -1,0 +1,15 @@
+--- a/ggml/src/ggml-sycl/CMakeLists.txt
++++ b/ggml/src/ggml-sycl/CMakeLists.txt
+@@ -228,7 +228,10 @@
+ endif()
+
+ if (GGML_SYCL_DEVICE_ARCH)
+-    target_compile_options(ggml-sycl PRIVATE -Xsycl-target-backend --offload-arch=${GGML_SYCL_DEVICE_ARCH})
+-    target_link_options(ggml-sycl PRIVATE -Xsycl-target-backend --offload-arch=${GGML_SYCL_DEVICE_ARCH})
++    string(REPLACE "," ";" _GGML_SYCL_ARCH_LIST "${GGML_SYCL_DEVICE_ARCH}")
++    foreach(_ARCH IN LISTS _GGML_SYCL_ARCH_LIST)
++        target_compile_options(ggml-sycl PRIVATE "SHELL:-Xsycl-target-backend --offload-arch=${_ARCH}")
++        target_link_options(ggml-sycl PRIVATE "SHELL:-Xsycl-target-backend --offload-arch=${_ARCH}")
++    endforeach()
+ endif()
+
