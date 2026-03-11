@@ -270,6 +270,10 @@
 
           autoPatchelfIgnoreMissingDeps = [
             "libcuda.so.1"
+            # VTune/Advisor ship bundled Python compiled against old readline 6;
+            # readline 8 (from nixpkgs) is soname-incompatible so we ignore this.
+            # The readline Python extension won't work but the compiler/SYCL tools are unaffected.
+            "libreadline.so.6"
           ];
 
           # When not installing all components there will be broken symlinks for each skipped component like this:
