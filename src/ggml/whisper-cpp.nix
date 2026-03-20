@@ -68,6 +68,9 @@ in
     hardeningDisable = [
       "zerocallusedregs"
       "pacret"
+
+      # Not necessary on all configs. TODO: Find which
+      "shadowstack"
     ];
 
     cmakeFlags =

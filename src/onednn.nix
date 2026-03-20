@@ -117,6 +117,11 @@ in
       append(CMAKE_EXE_LINKER_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")'
     '';
 
+    # hardeningDisable = [
+    #   "zerocallusedregs"
+    #   "pacret"
+    # ];
+
     # Tests fail on some Hydra builders, because they do not support SSE4.2.
     doCheck = false;
 

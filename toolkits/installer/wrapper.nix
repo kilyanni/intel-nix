@@ -29,6 +29,9 @@
     extraBuildCommands = ''
       ln -s $out/bin/clang++ $out/bin/icpx
       ln -s $out/bin/clang   $out/bin/icx
+      # Add the compiler lib dir so -lsycl-devicelib-host is found at link time
+      # (e.g. cmake's check_cxx_compiler_flag("-fsycl") which links with -fsycl).
+      echo " -L${kit}/compiler/latest/lib" >> $out/nix-support/cc-ldflags
     '';
   };
 
@@ -38,11 +41,27 @@
     name = kit.name;
     paths = [kit wrappedCC];
 
-    # postBuild = ''
-    #   mkdir -p $out/bin
-    #   ln -s ${wrappedCC}/bin/clang++ $out/bin/icpx
-    #   ln -s ${wrappedCC}/bin/clang   $out/bin/icx
-    # '';
+    # Generate a setup hook mirroring what setvars.sh does: add each
+    # component's `latest` directory to CMAKE_PREFIX_PATH, LIBRARY_PATH, and
+    # PKG_CONFIG_PATH. We iterate over ${kit} (the real installer store path)
+    # at postBuild time so paths are fully resolved — no version hardcoding,
+    # and no reliance on ps or set -u-hostile vars.sh logic at build time.
+    postBuild = ''
+      mkdir -p $out/nix-support
+      _hook="$out/nix-support/setup-hook"
+      # Dereference any symlink so we can append (store files are read-only).
+      if [ -L "$_hook" ]; then
+        _t=$(mktemp)
+        cat "$_hook" > "$_t"
+        rm "$_hook"
+        mv "$_t" "$_hook"
+      fi
+      for comproot in ${kit}/*/latest; do
+        [ -d "$comproot/lib/cmake" ] && echo "addToSearchPath CMAKE_PREFIX_PATH \"$comproot\"" >> "$_hook" || true
+        [ -d "$comproot/lib/pkgconfig" ] && echo "addToSearchPath PKG_CONFIG_PATH \"$comproot/lib/pkgconfig\"" >> "$_hook" || true
+        [ -d "$comproot/lib" ] && echo "addToSearchPath LIBRARY_PATH \"$comproot/lib\"" >> "$_hook" || true
+      done
+    '';
 
     passthru =
       kit.passthru

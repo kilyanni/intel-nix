@@ -172,7 +172,9 @@ in
         (lib.cmakeFeature "CUDA_cupti_LIBRARY" "${cudatoolkit_joined}/lib/libcupti.so")
       ];
 
-    passthru.setupVars = lib.optionalAttrs rocmSupport {ROCM_PATH = rocmPath;};
+    passthru.setupVars =
+      lib.optionalAttrs rocmSupport {ROCM_PATH = rocmPath;}
+      // lib.optionalAttrs cudaSupport {CUDA_PATH = cudatoolkit_joined;};
 
     passthru.backends =
       lib.optionals levelZeroSupport [
