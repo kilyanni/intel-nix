@@ -89,7 +89,7 @@
     );
     syclcompat = callPackage ./syclcompat.nix {};
     ggml = callPackage ./ggml/ggml.nix {inherit intel-llvm oneDNN oneMath;};
-    whisper-cpp = callPackage ./ggml/whisper-cpp.nix ({inherit intel-llvm oneDNN oneMath syclcompat;} // lib.intersectAttrs {rocmSupport = null; cudaSupport = null;} backendArgs);
+    whisper-cpp = callPackage ./ggml/whisper-cpp.nix ({inherit intel-llvm oneDNN oneMath syclcompat;} // lib.intersectAttrs {rocmSupport = null; cudaSupport = null; cudaPackages = null;} backendArgs);
     llama-cpp = callPackage ./ggml/llama-cpp.nix {inherit intel-llvm oneDNN oneMath;};
     khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
   in {
