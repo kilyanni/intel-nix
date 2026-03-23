@@ -106,21 +106,34 @@ in
     # addSYCLDeviceLibs finds libdevice.10.bc for the NVPTX llvm-link step.
     # (BoundArch defaults to sm_75 per LLVM driver, so --cuda-gpu-arch not needed
     # in linker flags.)
+    #
+    # sycl_post_ops.hpp explicitly calls dnnl::impl::math::swish_fwd /
+    # elu_fwd, bypassing the SYCL-safe overloads already in sycl_math_utils.hpp.
+    # Those common implementations use ::expf() / ::expm1f(), which Intel LLVM's
+    # __libclc_call__ attribute transforms into llvm.exp.f32 / llvm.expm1.f32
+    # intrinsics; the NVPTX backend has no registered libcall for ISD::FEXP,
+    # causing "no libcall available for fexp" at compile time.
+    # Dropping the explicit dnnl::impl::math:: qualification lets the unqualified
+    # names resolve (via "using namespace math") to the SYCL-safe versions in
+    # sycl_math_utils.hpp that use ::sycl::exp() / ::sycl::expm1().
     postPatch = lib.optionalString cudaSupport ''
+        substituteInPlace src/gpu/generic/sycl/sycl_post_ops.hpp \
+          --replace-fail \
+            'dnnl::impl::math::swish_fwd(s, alpha)' \
+            'swish_fwd(s, alpha)' \
+          --replace-fail \
+            'dnnl::impl::math::elu_fwd(s, alpha)' \
+            'elu_fwd(s, alpha)'
+
         substituteInPlace cmake/SYCL.cmake \
           --replace-fail \
             'suppress_warnings_for_nvidia_target()' \
             'suppress_warnings_for_nvidia_target()
-      append(CMAKE_CXX_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")
+      append(CMAKE_CXX_FLAGS "--cuda-path=${cudatoolkit_joined}")
       append(CMAKE_CXX_FLAGS "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")
-      append(CMAKE_SHARED_LINKER_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")
-      append(CMAKE_EXE_LINKER_FLAGS "--cuda-path=\''${CUDA_TOOLKIT_ROOT_DIR}")'
+      append(CMAKE_SHARED_LINKER_FLAGS "--cuda-path=${cudatoolkit_joined}")
+      append(CMAKE_EXE_LINKER_FLAGS "--cuda-path=${cudatoolkit_joined}")'
     '';
-
-    # hardeningDisable = [
-    #   "zerocallusedregs"
-    #   "pacret"
-    # ];
 
     # Tests fail on some Hydra builders, because they do not support SSE4.2.
     doCheck = false;
