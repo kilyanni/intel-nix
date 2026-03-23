@@ -1,0 +1,30 @@
+From: intel-nix
+Subject: [PATCH] clang/Driver: check CUDA_PATH env var on Linux too
+
+Clang already checks CUDA_PATH on Windows (where the CUDA installer sets
+it).  Package managers on Linux (e.g. NixOS) set CUDA_PATH as well, but
+the check is guarded by isOSWindows() so clang never sees it there.
+
+Add the same check into the !cuda_path_ignore_env block that is reached
+on non-Windows hosts, tried before the ptxas-in-PATH and /usr/local/cuda
+heuristics.
+
+---
+ clang/lib/Driver/ToolChains/Cuda.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/clang/lib/Driver/ToolChains/Cuda.cpp b/clang/lib/Driver/ToolChains/Cuda.cpp
+--- a/clang/lib/Driver/ToolChains/Cuda.cpp
++++ b/clang/lib/Driver/ToolChains/Cuda.cpp
+@@ -169,6 +169,12 @@ CudaInstallationDetector::CudaInstallationDetector(
+   } else {
+     if (!Args.hasArg(clang::driver::options::OPT_cuda_path_ignore_env)) {
++      // CUDA_PATH may be set by package managers (e.g. NixOS) or the user on
++      // non-Windows systems too.  Check it before the ptxas-in-PATH heuristic
++      // so an explicit env override takes precedence.
++      if (const char *CudaPathEnvVar = ::getenv("CUDA_PATH"))
++        Candidates.emplace_back(CudaPathEnvVar);
++
+       // Try to find ptxas binary. If the executable is located in a directory
+       // called 'bin/', its parent directory might be a good guess for a valid
+       // CUDA installation.

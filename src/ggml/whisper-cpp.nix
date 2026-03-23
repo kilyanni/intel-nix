@@ -14,7 +14,6 @@
   rocmSupport ? false,
   cudaSupport ? false,
   rocmPackages ? {},
-  cudaPackages ? {},
 }: let
   version = "1.8.3";
   syclTarget =
@@ -57,24 +56,14 @@ in
       ocl-icd
     ];
 
-    postPatch =
-      lib.optionalString (syclTarget == "INTEL") ''
-        substituteInPlace ggml/src/ggml-sycl/CMakeLists.txt \
-          --replace-fail "find_package(MKL REQUIRED)" "find_package(oneMath REQUIRED)" \
-          --replace-fail "target_link_libraries(ggml-sycl PRIVATE MKL::MKL_SYCL::BLAS)" \
-                         "target_link_libraries(ggml-sycl PRIVATE ONEMATH::onemath)" \
-          --replace-fail "target_compile_definitions(ggml-sycl PRIVATE GGML_SYCL_USE_INTEL_ONEMKL)" \
-                         "target_compile_definitions(ggml-sycl PRIVATE GGML_SYCL_GENERIC)"
-      ''
-      + lib.optionalString cudaSupport ''
-        substituteInPlace ggml/src/ggml-sycl/CMakeLists.txt \
-          --replace-fail \
-            'target_compile_options(ggml-sycl PRIVATE "-fsycl-targets=nvptx64-nvidia-cuda")' \
-            'target_compile_options(ggml-sycl PRIVATE "-fsycl-targets=nvptx64-nvidia-cuda" "--cuda-path=${cudaPackages.cuda_nvcc}")' \
-          --replace-fail \
-            'target_link_options(ggml-sycl PRIVATE "-fsycl-targets=nvptx64-nvidia-cuda")' \
-            'target_link_options(ggml-sycl PRIVATE "-fsycl-targets=nvptx64-nvidia-cuda" "--cuda-path=${cudaPackages.cuda_nvcc}")'
-      '';
+    postPatch = lib.optionalString (syclTarget == "INTEL") ''
+      substituteInPlace ggml/src/ggml-sycl/CMakeLists.txt \
+        --replace-fail "find_package(MKL REQUIRED)" "find_package(oneMath REQUIRED)" \
+        --replace-fail "target_link_libraries(ggml-sycl PRIVATE MKL::MKL_SYCL::BLAS)" \
+                       "target_link_libraries(ggml-sycl PRIVATE ONEMATH::onemath)" \
+        --replace-fail "target_compile_definitions(ggml-sycl PRIVATE GGML_SYCL_USE_INTEL_ONEMKL)" \
+                       "target_compile_definitions(ggml-sycl PRIVATE GGML_SYCL_GENERIC)"
+    '';
 
     hardeningDisable = [
       "zerocallusedregs"
@@ -92,10 +81,5 @@ in
       ]
       ++ lib.optionals (syclTarget == "AMD" && rocmGpuTargets != "") [
         (lib.cmakeFeature "GGML_SYCL_DEVICE_ARCH" rocmGpuTargets)
-      ]
-      # libonemath_blas_cublas.so carries DT_NEEDED: libcuda.so.1; ld resolves
-      # transitive deps via -rpath-link (not -L). Point it at the stubs dir.
-      ++ lib.optionals cudaSupport [
-        (lib.cmakeFeature "CMAKE_EXE_LINKER_FLAGS" "-Wl,-rpath-link,${cudaPackages.cuda_cudart}/lib/stubs")
       ];
   }
