@@ -55,6 +55,23 @@
     # at postBuild time so paths are fully resolved — no version hardcoding,
     # and no reliance on ps or set -u-hostile vars.sh logic at build time.
     postBuild = ''
+      # The nixpkgs kit creates $out/bin as a symlink → 2025.x/bin (a read-only
+      # store path), so lndir can't add the cc-wrapper's clang++/clang/icpx/icx
+      # into it. Convert it to a real directory with per-file symlinks first.
+      if [ -L "$out/bin" ]; then
+        _binTarget=$(readlink -f "$out/bin")
+        rm "$out/bin"
+        mkdir "$out/bin"
+        for _f in "$_binTarget"/*; do
+          ln -s "$_f" "$out/bin/$(basename "$_f")"
+        done
+      fi
+      # Now add the cc-wrapper binaries (clang++, clang, cc, icpx, icx, …).
+      for _f in ${wrappedCC}/bin/*; do
+        _name=$(basename "$_f")
+        [ -e "$out/bin/$_name" ] || ln -s "$_f" "$out/bin/$_name"
+      done
+
       mkdir -p $out/nix-support
       _hook="$out/nix-support/setup-hook"
       # Dereference any symlink so we can append (store files are read-only).
@@ -64,6 +81,12 @@
         rm "$_hook"
         mv "$_t" "$_hook"
       fi
+      echo "export ONEAPI_ROOT=\"${kit}\"" >> "$_hook"
+      # Override CXX/CC to use icpx/icx names. The cc-wrapper sets them to
+      # clang++/clang, but oneDNN (and other Intel cmake packages) check
+      # CMAKE_BASE_NAME and reject clang++ from an Intel LLVM compiler.
+      echo "export CXX=\"${wrappedCC}/bin/icpx\"" >> "$_hook"
+      echo "export CC=\"${wrappedCC}/bin/icx\"" >> "$_hook"
       for comproot in ${kit}/*/latest; do
         [ -d "$comproot/lib/cmake" ] && echo "addToSearchPath CMAKE_PREFIX_PATH \"$comproot\"" >> "$_hook" || true
         [ -d "$comproot/lib/pkgconfig" ] && echo "addToSearchPath PKG_CONFIG_PATH \"$comproot/lib/pkgconfig\"" >> "$_hook" || true
