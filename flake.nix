@@ -26,17 +26,29 @@
               # cc-wrapper reads those attrs from the cc arg (which becomes
               # ccache.links). Forward them from the original cc.cc so the
               # cc-wrapper still sees the correct hardening constraints.
-              ccacheWrapper = prev.lib.makeOverridable ({ extraConfig, cc }:
-                cc.override {
-                  cc = (prev.ccache.links { inherit extraConfig; unwrappedCC = cc.cc; })
-                    // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlagsByTargetPlatform) {
-                      inherit (cc.cc) hardeningUnsupportedFlagsByTargetPlatform;
+              ccacheWrapper =
+                prev.lib.makeOverridable (
+                  {
+                    extraConfig,
+                    cc,
+                  }:
+                    cc.override {
+                      cc =
+                        (prev.ccache.links {
+                          inherit extraConfig;
+                          unwrappedCC = cc.cc;
+                        })
+                        // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlagsByTargetPlatform) {
+                          inherit (cc.cc) hardeningUnsupportedFlagsByTargetPlatform;
+                        }
+                        // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlags) {
+                          inherit (cc.cc) hardeningUnsupportedFlags;
+                        };
                     }
-                    // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlags) {
-                      inherit (cc.cc) hardeningUnsupportedFlags;
-                    };
-                }
-              ) { extraConfig = ""; inherit (prev.stdenv) cc; };
+                ) {
+                  extraConfig = "";
+                  inherit (prev.stdenv) cc;
+                };
 
               ccacheStdenv = prev.ccacheStdenv.override {
                 extraConfig = ''
