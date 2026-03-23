@@ -94,12 +94,6 @@ in
         cudatoolkit_joined
       ];
 
-    hardeningDisable = [
-      # "zerocallusedregs"
-      "pacret"
-      "shadowstack"
-    ];
-
     # Pass GPU architecture to SYCL CUDA backend (CUDA 13 dropped sm_60)
     env = lib.optionalAttrs cudaSupport {
       CXXFLAGS = "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}";
