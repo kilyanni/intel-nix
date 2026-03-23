@@ -72,6 +72,9 @@
       ./patches/gnu-install-dirs.patch
       # Prevent cyclic deps from bundled cmake files in sycl-jit
       ./patches/sycl-jit-exclude-cmake-files.patch
+      # Clang checks CUDA_PATH env var only on Windows; package managers like
+      # NixOS set it on Linux too. Teach CudaInstallationDetector to look there.
+      ../llvm/cuda-path-env-linux.patch
     ];
   };
   src = runCommand "intel-llvm-src-fixed-${version}" {} ''
@@ -316,6 +319,11 @@ in
                 '')
                 unified-runtime'.setupVars)
             }
+            ${lib.optionalString (unified-runtime'.setupVars ? CUDA_PATH) ''
+              # SYCL CUDA runtime libs carry DT_NEEDED: libcuda.so.1.
+              # GNU ld resolves transitive DT_NEEDED via -rpath-link; point it at the stubs.
+              echo "-rpath-link,${unified-runtime'.setupVars.CUDA_PATH}/lib/stubs" >> $out/nix-support/cc-ldflags
+            ''}
           '';
 
         extraPackages =

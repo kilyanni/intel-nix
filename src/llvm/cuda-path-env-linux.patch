@@ -16,11 +16,12 @@ heuristics.
 diff --git a/clang/lib/Driver/ToolChains/Cuda.cpp b/clang/lib/Driver/ToolChains/Cuda.cpp
 --- a/clang/lib/Driver/ToolChains/Cuda.cpp
 +++ b/clang/lib/Driver/ToolChains/Cuda.cpp
-@@ -169,6 +169,12 @@ CudaInstallationDetector::CudaInstallationDetector(
+@@ -170,6 +170,12 @@
+           Ver);
    } else {
-     if (!Args.hasArg(clang::driver::options::OPT_cuda_path_ignore_env)) {
+     if (!Args.hasArg(options::OPT_cuda_path_ignore_env)) {
 +      // CUDA_PATH may be set by package managers (e.g. NixOS) or the user on
-+      // non-Windows systems too.  Check it before the ptxas-in-PATH heuristic
++      // non-Windows systems too. Check it before the ptxas-in-PATH heuristic
 +      // so an explicit env override takes precedence.
 +      if (const char *CudaPathEnvVar = ::getenv("CUDA_PATH"))
 +        Candidates.emplace_back(CudaPathEnvVar);

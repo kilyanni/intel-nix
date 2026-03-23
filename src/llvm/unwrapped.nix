@@ -146,6 +146,9 @@ in
       # they cause cycles in the outputs and break the build,
       # so we simply exclude them.
       ./sycl-jit-exclude-cmake-files.patch
+      # Clang checks CUDA_PATH env var only on Windows; package managers like
+      # NixOS set it on Linux too. Teach CudaInstallationDetector to look there.
+      ./cuda-path-env-linux.patch
     ];
 
     postPatch = ''
