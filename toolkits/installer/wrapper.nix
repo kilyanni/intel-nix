@@ -19,6 +19,10 @@
       ln -s ${intelBin}/icx  $out/bin/cc
     '';
     passthru.isClang = true;
+    # icpx rejects these flags for the SPIR-V device target (spir64-unknown-unknown).
+    # Declaring them unsupported here suppresses them globally for all derivations
+    # built with this stdenv, so per-derivation hardeningDisable is not needed.
+    hardeningUnsupportedFlags = ["zerocallusedregs" "pacret" "shadowstack"];
   };
 
   # extraPackages propagates the full Intel toolkit (runtime, headers, libs)
@@ -32,6 +36,10 @@
       # Add the compiler lib dir so -lsycl-devicelib-host is found at link time
       # (e.g. cmake's check_cxx_compiler_flag("-fsycl") which links with -fsycl).
       echo " -L${kit}/compiler/latest/lib" >> $out/nix-support/cc-ldflags
+      # icpx does not add -lstdc++ for pure link steps (only .o inputs, no source
+      # files), and relies on /lib paths that don't exist in the nix sandbox.
+      # Add it explicitly so C++ standard library symbols are always found.
+      echo " -lstdc++" >> $out/nix-support/cc-ldflags
     '';
   };
 
