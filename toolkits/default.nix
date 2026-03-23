@@ -5,7 +5,7 @@
     gdbm_1_13 = callPackage ./deps/gdbm_1_13.nix {};
   };
 
-  installer = callPackage ./installer {inherit deps;};
+  installer = callPackage ./installer {};
 
   tests = let
     intel-llvm = {stdenv = installer.base.passthru.stdenv;};
