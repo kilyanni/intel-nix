@@ -97,16 +97,14 @@ in
         (lib.cmakeFeature "CUDA_DRIVER_LIBRARY" "${cudaPackages.cuda_cudart}/lib/stubs/libcuda.so")
       ];
 
-    # Patch SYCL.cmake to add --cuda-path so libdevice.10.bc can be found.
-    # \${CUDA_TOOLKIT_ROOT_DIR} is a cmake variable ref (Nix ''$ + shell '\''
-    # produce literal \${...} in the cmake file; cmake drops the \ and expands).
-    # --cuda-path must also be in SHARED/EXE_LINKER_FLAGS: the SYCL device link
-    # step (building libdnnl.so) uses CMAKE_SHARED_LINKER_FLAGS, not CXX_FLAGS,
-    # and CudaInstallationDetector needs --cuda-path to populate LibDeviceMap so
-    # addSYCLDeviceLibs finds libdevice.10.bc for the NVPTX llvm-link step.
-    # (BoundArch defaults to sm_75 per LLVM driver, so --cuda-gpu-arch not needed
-    # in linker flags.)
-    #
+    # oneDNN has DNNL_AMD_SYCL_KERNELS_TARGET_ARCH for AMD but no equivalent
+    # for NVIDIA, so --cuda-gpu-arch must be injected as a compiler flag.
+    # cmakeFlagsArray (a bash array) preserves the space in the value;
+    # plain cmakeFlags is word-split before cmake sees it.
+    preConfigure = lib.optionalString cudaSupport ''
+      cmakeFlagsArray+=("-DCMAKE_CXX_FLAGS_INIT=-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")
+    '';
+
     # sycl_post_ops.hpp explicitly calls dnnl::impl::math::swish_fwd /
     # elu_fwd, bypassing the SYCL-safe overloads already in sycl_math_utils.hpp.
     # Those common implementations use ::expf() / ::expm1f(), which Intel LLVM's
@@ -124,15 +122,6 @@ in
           --replace-fail \
             'dnnl::impl::math::elu_fwd(s, alpha)' \
             'elu_fwd(s, alpha)'
-
-        substituteInPlace cmake/SYCL.cmake \
-          --replace-fail \
-            'suppress_warnings_for_nvidia_target()' \
-            'suppress_warnings_for_nvidia_target()
-      append(CMAKE_CXX_FLAGS "--cuda-path=${cudatoolkit_joined}")
-      append(CMAKE_CXX_FLAGS "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")
-      append(CMAKE_SHARED_LINKER_FLAGS "--cuda-path=${cudatoolkit_joined}")
-      append(CMAKE_EXE_LINKER_FLAGS "--cuda-path=${cudatoolkit_joined}")'
     '';
 
     # Tests fail on some Hydra builders, because they do not support SSE4.2.
