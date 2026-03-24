@@ -48,7 +48,7 @@ in
     ];
 
     buildInputs = [
-      # oneDNN
+      oneDNN
       oneMath
       syclcompat
       tbb_2022
