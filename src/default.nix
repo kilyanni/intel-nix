@@ -90,7 +90,7 @@
     syclcompat = callPackage ./syclcompat.nix {};
     ggml = callPackage ./ggml/ggml.nix {inherit intel-llvm oneDNN oneMath;};
     whisper-cpp = callPackage ./ggml/whisper-cpp.nix ({inherit intel-llvm oneDNN oneMath syclcompat;} // lib.intersectAttrs {rocmSupport = null; cudaSupport = null;} backendArgs);
-    llama-cpp = callPackage ./ggml/llama-cpp.nix {inherit intel-llvm oneDNN oneMath;};
+    llama-cpp = callPackage ./ggml/llama-cpp.nix ({inherit intel-llvm oneDNN oneMath syclcompat;} // lib.intersectAttrs {rocmSupport = null; cudaSupport = null;} backendArgs);
     khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
   in {
     llvm = intel-llvm;
