@@ -135,6 +135,13 @@ in
 
         substituteInPlace $out/lib/cmake/dnnl/dnnl-targets.cmake \
           --replace "\''${_IMPORT_PREFIX}/" ""
+
+        # dnnl-config.cmake hardcodes $out/lib/cmake/dnnl as the CMAKE_MODULE_PATH
+        # entry for Find{cuDNN,cuBLAS,cublasLt,TBB}.cmake.  nixpkgs fixupPhase moves
+        # cmake files to $dev, so the path becomes stale.  Replace with
+        # ''${CMAKE_CURRENT_LIST_DIR} so it resolves correctly after the move.
+        substituteInPlace $out/lib/cmake/dnnl/dnnl-config.cmake \
+          --replace-fail "$out/lib/cmake/dnnl" "\''${CMAKE_CURRENT_LIST_DIR}"
       ''
       + lib.optionalString rocmSupport ''
         # oneDNN exports legacy cmake target names that don't exist in ROCm 7.1.1:
