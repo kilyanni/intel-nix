@@ -38,12 +38,11 @@
                           inherit extraConfig;
                           unwrappedCC = cc.cc;
                         })
-                        // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlagsByTargetPlatform) {
-                          inherit (cc.cc) hardeningUnsupportedFlagsByTargetPlatform;
+                        // builtins.intersectAttrs {
+                          hardeningUnsupportedFlagsByTargetPlatform = null;
+                          hardeningUnsupportedFlags = null;
                         }
-                        // prev.lib.optionalAttrs (cc.cc ? hardeningUnsupportedFlags) {
-                          inherit (cc.cc) hardeningUnsupportedFlags;
-                        };
+                        cc.cc;
                     }
                 ) {
                   extraConfig = "";
