@@ -272,6 +272,7 @@ in
           lib.strings.concatStringsSep ";" unified-runtime.backends
         ))
       ]
+      ++ lib.optional (cudaSupport || rocmSupport) (lib.cmakeFeature "LLVM_ENABLE_RUNTIMES" "compiler-rt")
       ++ unified-runtime.cmakeFlags;
 
     # This hardening option causes compilation errors when compiling for amdgcn, spirv and others
