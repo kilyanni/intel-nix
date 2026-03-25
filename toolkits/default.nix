@@ -12,11 +12,15 @@
     oneMath-sycl-blas = callPackage ../src/onemath-sycl-blas.nix {inherit intel-llvm;};
     oneMath = callPackage ../src/onemath.nix {inherit intel-llvm oneMath-sycl-blas;};
     oneDNN = callPackage ../src/onednn.nix {inherit intel-llvm;};
-    syclcompat = callPackage ../src/syclcompat.nix {};
   in {
     inherit oneMath-sycl-blas oneMath oneDNN;
     whisper-cpp = callPackage ../src/ggml/whisper-cpp.nix {
-      inherit intel-llvm oneMath oneDNN syclcompat;
+      inherit intel-llvm oneMath oneDNN;
+      syclcompat = null;
+    };
+    llama-cpp = callPackage ../src/ggml/llama-cpp.nix {
+      inherit intel-llvm oneMath oneDNN;
+      syclcompat = null;
     };
   };
 }
