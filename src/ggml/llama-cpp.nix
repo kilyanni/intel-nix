@@ -89,4 +89,6 @@ in
       ++ lib.optionals (rocmSupport && rocmGpuTargets != "") [
         (lib.cmakeFeature "GGML_SYCL_DEVICE_ARCH" rocmGpuTargets)
       ];
+
+    meta.mainProgram = "llama-cli";
   }

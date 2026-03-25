@@ -82,4 +82,6 @@ in
       ++ lib.optionals (syclTarget == "AMD" && rocmGpuTargets != "") [
         (lib.cmakeFeature "GGML_SYCL_DEVICE_ARCH" rocmGpuTargets)
       ];
+
+    meta.mainProgram = "whisper-cli";
   }
