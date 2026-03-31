@@ -272,7 +272,19 @@ in
           lib.strings.concatStringsSep ";" unified-runtime.backends
         ))
       ]
-      ++ lib.optional (cudaSupport || rocmSupport) (lib.cmakeFeature "LLVM_ENABLE_RUNTIMES" "compiler-rt")
+      ++ lib.optionals (cudaSupport || rocmSupport) [
+        (lib.cmakeFeature "LLVM_ENABLE_RUNTIMES" "compiler-rt")
+        # Only build for the host triple; without this compiler-rt also attempts
+        # i386 builtins which fail without 32-bit headers.
+        (lib.cmakeBool "COMPILER_RT_DEFAULT_TARGET_ONLY" true)
+        # The runtimes ExternalProject sub-build uses the freshly-built clang directly,
+        # which has no system headers as it isn't nix-wrapped.
+        # With these flags we override the compiler for those stages manually.
+        (lib.cmakeFeature "BUILTINS_CMAKE_ARGS"
+          "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
+        (lib.cmakeFeature "RUNTIMES_CMAKE_ARGS"
+          "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
+      ]
       ++ unified-runtime.cmakeFlags;
 
     # This hardening option causes compilation errors when compiling for amdgcn, spirv and others
