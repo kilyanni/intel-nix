@@ -5,6 +5,7 @@
   stdenv,
   newScope,
   cudaPackages_13,
+  rocmPackages ? {},
   fetchFromGitHub,
   useCcache ? true,
 }: let
@@ -59,7 +60,7 @@
   # Backend args passed to both the LLVM build and downstream packages
   backends = {
     l0 = {};
-    rocm = {rocmSupport = true;};
+    rocm = {rocmSupport = true; inherit rocmPackages;};
     cuda = {
       cudaSupport = true;
       cudaPackages = cudaPackages_13;
@@ -91,12 +92,14 @@
       // lib.intersectAttrs {
         rocmSupport = null;
         cudaSupport = null;
+        rocmPackages = null;
       }
       backendArgs);
     llama-cpp = callPackage ./ggml/llama-cpp.nix ({inherit intel-llvm oneDNN oneMath syclcompat;}
       // lib.intersectAttrs {
         rocmSupport = null;
         cudaSupport = null;
+        rocmPackages = null;
       }
       backendArgs);
     khronos-sycl-cts = callPackage ./khronos-sycl-cts.nix ({inherit intel-llvm;} // backendArgs);
