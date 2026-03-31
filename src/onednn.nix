@@ -116,14 +116,14 @@ in
     # Dropping the explicit dnnl::impl::math:: qualification lets the unqualified
     # names resolve (via "using namespace math") to the SYCL-safe versions in
     # sycl_math_utils.hpp that use ::sycl::exp() / ::sycl::expm1().
-    postPatch = lib.optionalString cudaSupport ''
-        substituteInPlace src/gpu/generic/sycl/sycl_post_ops.hpp \
-          --replace-fail \
-            'dnnl::impl::math::swish_fwd(s, alpha)' \
-            'swish_fwd(s, alpha)' \
-          --replace-fail \
-            'dnnl::impl::math::elu_fwd(s, alpha)' \
-            'elu_fwd(s, alpha)'
+    postPatch = lib.optionalString (cudaSupport || rocmSupport) ''
+      substituteInPlace src/gpu/generic/sycl/sycl_post_ops.hpp \
+        --replace-fail \
+          'dnnl::impl::math::swish_fwd(s, alpha)' \
+          'swish_fwd(s, alpha)' \
+        --replace-fail \
+          'dnnl::impl::math::elu_fwd(s, alpha)' \
+          'elu_fwd(s, alpha)'
     '';
 
     # Tests fail on some Hydra builders, because they do not support SSE4.2.
