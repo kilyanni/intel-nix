@@ -90,6 +90,8 @@ in
       ++ lib.optionals rocmSupport [
         (lib.cmakeFeature "ONEDNN_GPU_VENDOR" "AMD")
         (lib.cmakeBool "ONEDNN_BUILD_GRAPH" false)
+        # TODO: derive from rocmPackages.clr.gpuTargets once multi-arch AOT works with Intel SYCL
+        (lib.cmakeFeature "DNNL_AMD_SYCL_KERNELS_TARGET_ARCH" "gfx1030")
       ]
       ++ lib.optionals cudaSupport [
         (lib.cmakeFeature "ONEDNN_GPU_VENDOR" "NVIDIA")
