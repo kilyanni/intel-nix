@@ -107,20 +107,20 @@ in
       lib.optionalString cudaSupport ''
         cmakeFlagsArray+=("-DCMAKE_CXX_FLAGS_INIT=-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}")
       ''
+      # Intel LLVM's lld crashes in SeparateConstOffsetFromGEP on oneDNN's AMD
+      # kernels (APInt bit-width assertion on GEP constant offsets).
+      # The AMD device link path: the HOST clang++ (x86_64) with
+      # -fsycl-targets=amdgcn-amd-amdhsa creates a HIPAMDToolChain (OFK_SYCL)
+      # offload toolchain.  For the final device-link action, SelectTool returns
+      # AMDGCN::SYCLLinker (inheriting AMDGCN::Linker::ConstructJob →
+      # constructLldCommand).  constructLldCommand (HIPAMD.cpp:99-102) converts
+      # Args.filtered(OPT_mllvm) to "-plugin-opt=<val>" for lld.
+      # HIPAMDToolChain::TranslateArgs (HIPAMD.cpp:317-320) copies ALL host
+      # driver args to the device toolchain args, so a bare -mllvm flag in the
+      # host clang++ invocation reaches constructLldCommand as OPT_mllvm.
+      # CMAKE_SHARED_LINKER_FLAGS values appear as raw clang++ driver args (not
+      # wrapped in -Wl,), so -mllvm is visible as OPT_mllvm in the device args.
       + lib.optionalString rocmSupport ''
-        # Intel LLVM's lld crashes in SeparateConstOffsetFromGEP on oneDNN's AMD
-        # kernels (APInt bit-width assertion on GEP constant offsets).
-        # The AMD device link path: the HOST clang++ (x86_64) with
-        # -fsycl-targets=amdgcn-amd-amdhsa creates a HIPAMDToolChain (OFK_SYCL)
-        # offload toolchain.  For the final device-link action, SelectTool returns
-        # AMDGCN::SYCLLinker (inheriting AMDGCN::Linker::ConstructJob →
-        # constructLldCommand).  constructLldCommand (HIPAMD.cpp:99-102) converts
-        # Args.filtered(OPT_mllvm) to "-plugin-opt=<val>" for lld.
-        # HIPAMDToolChain::TranslateArgs (HIPAMD.cpp:317-320) copies ALL host
-        # driver args to the device toolchain args, so a bare -mllvm flag in the
-        # host clang++ invocation reaches constructLldCommand as OPT_mllvm.
-        # CMAKE_SHARED_LINKER_FLAGS values appear as raw clang++ driver args (not
-        # wrapped in -Wl,), so -mllvm is visible as OPT_mllvm in the device args.
         cmakeFlagsArray+=("-DCMAKE_SHARED_LINKER_FLAGS_INIT=-mllvm -disable-separate-const-offset-from-gep")
       '';
 
