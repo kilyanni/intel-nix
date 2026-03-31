@@ -324,6 +324,13 @@ in
       moveToOutput "lib/clang/${llvmMajorVersion}" "$lib"
       substituteInPlace "$dev/include/clang/Config/config.h" \
         --replace-fail "../lib/clang/${llvmMajorVersion}" "$lib/lib/clang/${llvmMajorVersion}"
+
+      # cmake detects the host triple as x86_64-pc-linux-gnu, but nix's cc-wrapper
+      # uses x86_64-unknown-linux-gnu. compiler-rt (including builtins) is installed
+      # under the cmake triple; symlink it so clang -rtlib=compiler-rt finds it.
+      if [ -d "$lib/lib/clang/${llvmMajorVersion}/lib/x86_64-pc-linux-gnu" ]; then
+        ln -s x86_64-pc-linux-gnu "$lib/lib/clang/${llvmMajorVersion}/lib/x86_64-unknown-linux-gnu"
+      fi
     '';
 
     meta = {
