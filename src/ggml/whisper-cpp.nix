@@ -22,9 +22,7 @@
     else if cudaSupport
     then "NVIDIA"
     else "INTEL";
-  rocmGpuTargets =
-    lib.optionalString (rocmPackages ? clr.gpuTargets)
-    (builtins.concatStringsSep "," rocmPackages.clr.gpuTargets);
+  rocmGpuTargets = "gfx1030"; # TODO: derive from rocmPackages.clr.gpuTargets once multi-arch AOT works
 in
   intel-llvm.stdenv.mkDerivation {
     pname = "whisper-cpp";
@@ -36,10 +34,6 @@ in
       tag = "v${version}";
       hash = "sha256-TeS1lGKEzkHOoBemy/tMGtIsy0iouj9DTYIgTjUNcQk=";
     };
-
-    patches = [
-      ./patches/sycl-amd-multi-arch.patch
-    ];
 
     nativeBuildInputs = [
       cmake

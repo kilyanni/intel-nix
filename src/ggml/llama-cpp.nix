@@ -26,9 +26,7 @@
     else if rocmSupport
     then "AMD"
     else "INTEL";
-  rocmGpuTargets =
-    lib.optionalString (rocmPackages ? clr.gpuTargets)
-    (builtins.concatStringsSep "," rocmPackages.clr.gpuTargets);
+  rocmGpuTargets = "gfx1030"; # TODO: derive from rocmPackages.clr.gpuTargets once multi-arch AOT works
 in
   intel-llvm.stdenv.mkDerivation {
     pname = "llama-cpp";
