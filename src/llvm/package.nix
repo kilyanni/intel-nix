@@ -110,10 +110,12 @@
           # Point resource-dir at the full lib/clang/{llvmMajorVersion} so both
           # include/ (clang intrinsics) and lib/ (libclc .bc files for cuda/rocm) are found.
           echo "-resource-dir=${lib.getLib self.unwrapped}/lib/clang/${self.llvmMajorVersion}" >> $out/nix-support/cc-cflags
-          ${lib.concatStrings (lib.mapAttrsToList (k: v: ''
+          ${lib.concatStrings (
+            lib.mapAttrsToList (k: v: ''
               echo "export ${k}=${v}" >> $out/nix-support/setup-hook
             '')
-            self.unwrapped.unified-runtime.setupVars)}
+            self.unwrapped.unified-runtime.setupVars
+          )}
           ${lib.optionalString (self.unwrapped.unified-runtime.setupVars ? CUDA_PATH) ''
             # SYCL CUDA runtime libs (e.g. libonemath_blas_cublas.so) carry DT_NEEDED: libcuda.so.1.
             # GNU ld resolves transitive DT_NEEDED via -rpath-link, not -L; point it at the stubs.
@@ -161,17 +163,27 @@
           # so merged must look like a cc-wrapper to it.
           cc = self.unwrapped;
           override = args:
-            (self.overrideScope (f: p: {
-              # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
-              # ccache.links does not forward hardeningUnsupportedFlags from the unwrapped
-              # compiler. Without this, zerocallusedregs would re-enter defaultHardeningFlags
-              # in the rebuilt cc-wrapper and break downstream spir64 compilations.
-              wrapper = p.wrapper.override (
-                if args ? cc
-                then args // {cc = args.cc // {hardeningUnsupportedFlags = self.unwrapped.hardeningUnsupportedFlags or [];};}
-                else args
-              );
-            })).merged;
+            (self.overrideScope (
+              f: p: {
+                # When overriding cc (e.g. ccacheWrapper replaces cc with ccache.links),
+                # ccache.links does not forward hardeningUnsupportedFlags from the unwrapped
+                # compiler. Without this, zerocallusedregs would re-enter defaultHardeningFlags
+                # in the rebuilt cc-wrapper and break downstream spir64 compilations.
+                wrapper = p.wrapper.override (
+                  if args ? cc
+                  then
+                    args
+                    // {
+                      cc =
+                        args.cc
+                        // {
+                          hardeningUnsupportedFlags = self.unwrapped.hardeningUnsupportedFlags or [];
+                        };
+                    }
+                  else args
+                );
+              }
+            )).merged;
         };
     };
     stdenv = overrideCC self.unwrapped.baseLlvm.stdenv self.merged;

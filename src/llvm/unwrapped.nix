@@ -280,10 +280,8 @@ in
         # The runtimes ExternalProject sub-build uses the freshly-built clang directly,
         # which has no system headers as it isn't nix-wrapped.
         # With these flags we override the compiler for those stages manually.
-        (lib.cmakeFeature "BUILTINS_CMAKE_ARGS"
-          "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
-        (lib.cmakeFeature "RUNTIMES_CMAKE_ARGS"
-          "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
+        (lib.cmakeFeature "BUILTINS_CMAKE_ARGS" "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
+        (lib.cmakeFeature "RUNTIMES_CMAKE_ARGS" "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
       ]
       ++ unified-runtime.cmakeFlags;
 

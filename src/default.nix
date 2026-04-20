@@ -60,7 +60,10 @@
   # Backend args passed to both the LLVM build and downstream packages
   backends = {
     l0 = {};
-    rocm = {rocmSupport = true; inherit rocmPackages;};
+    rocm = {
+      rocmSupport = true;
+      inherit rocmPackages;
+    };
     cuda = {
       cudaSupport = true;
       cudaPackages = cudaPackages_13;

@@ -47,7 +47,10 @@
   # need to pull in hsakmt and comgr at runtime, only build time.
   rocmPath = symlinkJoin {
     name = "rocm-path";
-    paths = with rocmPackages; [clr rocm-device-libs];
+    paths = with rocmPackages; [
+      clr
+      rocm-device-libs
+    ];
   };
 
   cudatoolkit_joined = symlinkJoin {
