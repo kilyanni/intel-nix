@@ -139,6 +139,10 @@
     merged = symlinkJoin {
       inherit (self.unwrapped) pname version meta;
 
+      strictDeps = true;
+      # Currently broken for symlinkJoin, see https://github.com/nixos/nixpkgs/issues/510434
+      __structuredAttrs = false;
+
       paths = with self; [
         # Order is important, we want files from the wrappers to take precedence
         wrapper

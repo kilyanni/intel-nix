@@ -101,6 +101,9 @@ in
       "python"
     ];
 
+    strictDeps = true;
+    __structuredAttrs = true;
+
     nativeBuildInputs =
       [
         cmake
@@ -109,7 +112,6 @@ in
         llvmPackages.bintools # For lld
         pkg-config
         zlib
-        zstd
       ]
       ++ lib.optionals enableManpages [
         python3.pkgs.sphinx
@@ -124,12 +126,11 @@ in
         hwloc
         emhash
         parallel-hashmap
-        pkgsStatic.zstd
+        (zstd.override {static = true;})
       ]
       ++ unified-runtime.buildInputs;
 
     propagatedBuildInputs = [
-      zstd
       zlib
       libedit
       opencl-headers
@@ -234,7 +235,6 @@ in
         (lib.cmakeBool "SYCL_INCLUDE_TESTS" false)
 
         (lib.cmakeFeature "LLVM_ENABLE_ZSTD" "FORCE_ON")
-        (lib.cmakeBool "LLVM_USE_STATIC_ZSTD" true)
         (lib.cmakeFeature "LLVM_ENABLE_ZLIB" "FORCE_ON")
         (lib.cmakeBool "LLVM_ENABLE_THREADS" true)
 
