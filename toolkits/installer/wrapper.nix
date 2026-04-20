@@ -58,14 +58,12 @@
       # The nixpkgs kit creates $out/bin as a symlink → 2025.x/bin (a read-only
       # store path), so lndir can't add the cc-wrapper's clang++/clang/icpx/icx
       # into it. Convert it to a real directory with per-file symlinks first.
-      if [ -L "$out/bin" ]; then
-        _binTarget=$(readlink -f "$out/bin")
-        rm "$out/bin"
-        mkdir "$out/bin"
-        for _f in "$_binTarget"/*; do
-          ln -s "$_f" "$out/bin/$(basename "$_f")"
-        done
-      fi
+      _binTarget=$(readlink -f "$out/bin")
+      rm "$out/bin"
+      mkdir "$out/bin"
+      for _f in "$_binTarget"/*; do
+        ln -s "$_f" "$out/bin/$(basename "$_f")"
+      done
       # Now add the cc-wrapper binaries (clang++, clang, cc, icpx, icx, …).
       for _f in ${wrappedCC}/bin/*; do
         _name=$(basename "$_f")

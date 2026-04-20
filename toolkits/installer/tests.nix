@@ -37,12 +37,6 @@
       echo "SYCL compilation test passed" > $out/test-passed
     '';
 
-    hardeningDisable = [
-      "zerocallusedregs"
-      "pacret"
-      "shadowstack"
-    ];
-
     meta = {
       description = "Test that Intel toolkit stdenv can compile SYCL programs";
     };
@@ -65,12 +59,6 @@
       mkdir -p $out
       echo "Header availability test passed" > $out/test-passed
     '';
-
-    hardeningDisable = [
-      "zerocallusedregs"
-      "pacret"
-      "shadowstack"
-    ];
 
     meta = {
       description = "Test that Intel toolkit headers are accessible";
@@ -106,12 +94,6 @@
 
       echo "C compilation test passed" > $out/test-passed
     '';
-
-    hardeningDisable = [
-      "zerocallusedregs"
-      "pacret"
-      "shadowstack"
-    ];
 
     meta = {
       description = "Test that Intel toolkit can compile basic C programs";
@@ -152,12 +134,6 @@
 
       echo "OpenMP compilation test passed" > $out/test-passed
     '';
-
-    hardeningDisable = [
-      "zerocallusedregs"
-      "pacret"
-      "shadowstack"
-    ];
 
     meta = {
       description = "Test that Intel toolkit can compile OpenMP programs";
