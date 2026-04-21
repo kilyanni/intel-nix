@@ -2,10 +2,8 @@
   stdenv,
   writeTextFile,
 }:
-# Reproduces the icpx pure-link-mode -lstdc++ omission.
-# icpx omits -lstdc++ when called with only .o inputs (no source files),
-# which is how cmake always invokes the linker. The libcxx-ldflags mechanism
-# in the cc-wrapper must supply it instead.
+# Verifies that C++ link steps work in pure link mode (.o only, no source files),
+# which is how cmake always invokes the linker.
 stdenv.mkDerivation {
   name = "test-pure-link-libstdcxx";
 

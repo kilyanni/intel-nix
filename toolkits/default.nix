@@ -12,6 +12,9 @@ in {
 
   tests = {
     pure-link-libstdcxx = callPackage ./tests/pure-link-libstdcxx.nix {inherit stdenv;};
+    cxx-shared-lib-pure-link = callPackage ./tests/cxx-shared-lib-pure-link.nix {inherit stdenv;};
+    cxx-single-step = callPackage ./tests/cxx-single-step.nix {inherit stdenv;};
+    c-pure-link = callPackage ./tests/c-pure-link.nix {inherit stdenv;};
   };
 
   packages = let
