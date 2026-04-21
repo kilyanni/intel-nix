@@ -1,13 +1,15 @@
-{callPackage}: rec {
+{callPackage}: let
+  installer = callPackage ./installer {};
+in {
   deps = {
     libffi_3_2_1 = callPackage ./deps/libffi_3_2_1.nix {};
     opencl-clang_14 = callPackage ./deps/opencl-clang_14.nix {};
     gdbm_1_13 = callPackage ./deps/gdbm_1_13.nix {};
   };
 
-  installer = callPackage ./installer {};
+  inherit installer;
 
-  tests = let
+  packages = let
     intel-llvm = {stdenv = installer.base;};
     oneMath-sycl-blas = callPackage ../src/onemath-sycl-blas.nix {inherit intel-llvm;};
     oneMath = callPackage ../src/onemath.nix {inherit intel-llvm oneMath-sycl-blas;};

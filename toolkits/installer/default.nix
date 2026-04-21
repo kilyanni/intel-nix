@@ -9,4 +9,6 @@
   hpc = callPackage ./wrapper.nix {
     kit = intel-oneapi.hpc;
   };
+
+  tests = callPackage ./tests.nix {stdenv = base;};
 }
