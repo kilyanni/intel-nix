@@ -1,5 +1,6 @@
 {callPackage}: let
   installer = callPackage ./installer {};
+  stdenv = installer.base;
 in {
   deps = {
     libffi_3_2_1 = callPackage ./deps/libffi_3_2_1.nix {};
@@ -8,6 +9,10 @@ in {
   };
 
   inherit installer;
+
+  tests = {
+    pure-link-libstdcxx = callPackage ./tests/pure-link-libstdcxx.nix {inherit stdenv;};
+  };
 
   packages = let
     intel-llvm = {stdenv = installer.base;};
