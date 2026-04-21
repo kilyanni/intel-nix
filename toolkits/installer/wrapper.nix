@@ -37,6 +37,10 @@
 
         echo "export ONEAPI_ROOT=\"${kit}\"" >> $out/nix-support/setup-hook
       ''
+      + lib.optionalString true ''
+
+        echo "-lstdc++" >> $out/nix-support/libcxx-ldflags
+      ''
       + lib.optionalString false ''
 
         # icpx omits -lstdc++ in link mode and for some reason looks up
