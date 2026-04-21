@@ -4,6 +4,7 @@
   stdenv,
   overrideCC,
   wrapCCWith,
+  lib,
 }: let
   intelBin = "${kit}/compiler/latest/bin";
 
@@ -25,16 +26,26 @@
   wrappedCC = wrapCCWith {
     cc = unwrappedCC;
     extraPackages = [kit];
-    extraBuildCommands = ''
-      # Consumers expect the icpx/icx names and might reject clang++/clang.
-      ln -s $out/bin/clang++ $out/bin/icpx
-      ln -s $out/bin/clang   $out/bin/icx
+    extraBuildCommands =
+      ''
+        # Consumers expect the icpx/icx names and might reject clang++/clang.
+        ln -s $out/bin/clang++ $out/bin/icpx
+        ln -s $out/bin/clang   $out/bin/icx
 
-      echo "export CXX=\"$out/bin/icpx\"" >> $out/nix-support/setup-hook
-      echo "export CC=\"$out/bin/icx\"" >> $out/nix-support/setup-hook
+        echo "export CXX=\"$out/bin/icpx\"" >> $out/nix-support/setup-hook
+        echo "export CC=\"$out/bin/icx\"" >> $out/nix-support/setup-hook
 
-      echo "export ONEAPI_ROOT=\"${kit}\"" >> $out/nix-support/setup-hook
-    '';
+        echo "export ONEAPI_ROOT=\"${kit}\"" >> $out/nix-support/setup-hook
+      ''
+      + lib.optionalString false ''
+
+        # icpx omits -lstdc++ in link mode and for some reason looks up
+        # /lib paths instead of wrapper-provided ones.
+        # Inject via cc-wrapper-hook so it only fires for C++ link steps, not C.
+        cat >> $out/nix-support/cc-wrapper-hook << 'EOF'
+        if [[ "$isCxx" = 1 && "$dontLink" != 1 ]]; then extraAfter+=("-lstdc++"); fi
+        EOF
+      '';
   };
 
   intelStdenv = overrideCC stdenv wrappedCC;
