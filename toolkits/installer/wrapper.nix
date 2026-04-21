@@ -11,10 +11,25 @@
   unwrappedCC = stdenvNoCC.mkDerivation {
     name = "intel-oneapi-cc-unwrapped";
     dontUnpack = true;
+
+    # Note: use a wrapper script, not symlinks. The compiler inspects argv[0]
+    #       to decide how to behave, so it must see itself invoked as
+    #       icx/icpx. Through a symlink it would see clang/clang++ and
+    #       select the wrong behavior.
     installPhase = ''
       mkdir -p $out/bin
-      ln -s ${intelBin}/icpx $out/bin/clang++
-      ln -s ${intelBin}/icx  $out/bin/clang
+
+      cat > $out/bin/clang++ << 'EOF'
+      #!/bin/sh
+      exec ${intelBin}/icpx "$@"
+      EOF
+      chmod +x $out/bin/clang++
+
+      cat > $out/bin/clang << 'EOF'
+      #!/bin/sh
+      exec ${intelBin}/icx "$@"
+      EOF
+      chmod +x $out/bin/clang
     '';
     passthru.isClang = true;
     # icpx rejects these flags for the SPIR-V device target (spir64-unknown-unknown).
@@ -37,7 +52,7 @@
 
         echo "export ONEAPI_ROOT=\"${kit}\"" >> $out/nix-support/setup-hook
       ''
-      + lib.optionalString true ''
+      + lib.optionalString false ''
 
         echo "-lstdc++" >> $out/nix-support/libcxx-ldflags
       ''
