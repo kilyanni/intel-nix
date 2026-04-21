@@ -34,17 +34,6 @@
       echo "export CC=\"$out/bin/icx\"" >> $out/nix-support/setup-hook
 
       echo "export ONEAPI_ROOT=\"${kit}\"" >> $out/nix-support/setup-hook
-
-      # Add the compiler lib dir so -lsycl-devicelib-host is found at link time
-      # (e.g. cmake's check_cxx_compiler_flag("-fsycl") which links with -fsycl).
-      echo " -L${kit}/compiler/latest/lib" >> $out/nix-support/cc-ldflags
-
-      # icpx omits -lstdc++ in link mode and for some reason looks up
-      # /lib paths instead of wrapper-provided ones.
-      # Inject via cc-wrapper-hook so it only fires for C++ link steps, not C.
-      cat >> $out/nix-support/cc-wrapper-hook << 'EOF'
-      if [[ "$isCxx" = 1 && "$dontLink" != 1 ]]; then extraAfter+=("-lstdc++"); fi
-      EOF
     '';
   };
 
