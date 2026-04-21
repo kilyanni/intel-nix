@@ -8,7 +8,7 @@
   installer = callPackage ./installer {};
 
   tests = let
-    intel-llvm = {stdenv = installer.base.passthru.stdenv;};
+    intel-llvm = {stdenv = installer.base;};
     oneMath-sycl-blas = callPackage ../src/onemath-sycl-blas.nix {inherit intel-llvm;};
     oneMath = callPackage ../src/onemath.nix {inherit intel-llvm oneMath-sycl-blas;};
     oneDNN = callPackage ../src/onednn.nix {inherit intel-llvm;};
