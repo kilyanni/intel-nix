@@ -3,12 +3,16 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-llvm.url = "github:NixOS/nixpkgs/pull/511852/head";
+    nixpkgs-oneapi.url = "github:NixOS/nixpkgs/pull/512223/head";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs = {
     self,
     nixpkgs,
+    nixpkgs-llvm,
+    nixpkgs-oneapi,
     flake-utils,
   }:
     flake-utils.lib.eachDefaultSystem (
@@ -21,6 +25,9 @@
 
           overlays = [
             (final: prev: {
+              intel-llvm = nixpkgs-llvm.legacyPackages.${system}.intel-llvm;
+              intel-oneapi = nixpkgs-oneapi.legacyPackages.${system}.intel-oneapi;
+
               # ccacheWrapper replaces cc.cc (the real compiler) with ccache.links
               # but drops hardeningUnsupportedFlags* in the process, because
               # cc-wrapper reads those attrs from the cc arg (which becomes

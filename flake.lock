@@ -34,10 +34,44 @@
         "type": "github"
       }
     },
+    "nixpkgs-llvm": {
+      "locked": {
+        "lastModified": 1776779914,
+        "narHash": "sha256-c5q24aEVQNlyyC1PA6Q8keeYvQMxuCVsDLFsuH8WdUE=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "1ed85a36e880bdef4a2fbebf46d0df1dc042df83",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "pull/511852/head",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-oneapi": {
+      "locked": {
+        "lastModified": 1776814231,
+        "narHash": "sha256-g8EfOv4vUkiPp0ZQJLi5A2eloV+ilSDzT0HtlVHm+sE=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "4d3c281030a2dcc228885906b69b60b4be9d7ede",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "pull/512223/head",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "nixpkgs-llvm": "nixpkgs-llvm",
+        "nixpkgs-oneapi": "nixpkgs-oneapi"
       }
     },
     "systems": {

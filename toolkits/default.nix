@@ -1,6 +1,10 @@
-{callPackage}: let
+{
+  callPackage,
+  intel-oneapi,
+}: let
   installer = callPackage ./installer {};
   stdenv = installer.base;
+  # stdenv = intel-oneapi.base.stdenv;
 in {
   deps = {
     libffi_3_2_1 = callPackage ./deps/libffi_3_2_1.nix {};
