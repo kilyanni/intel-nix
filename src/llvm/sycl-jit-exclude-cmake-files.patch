@@ -1,17 +1,20 @@
+commit 9a6c977279bdd3a53672adf502593fd80a4c8d8c
+Author: kilyanni <github@nkilian.org>
+Date:   Sun Apr 26 02:21:51 2026 +0200
+
+    [SYCL RTC] Exclude CMake files
+
 diff --git a/sycl-jit/jit-compiler/utils/generate.py b/sycl-jit/jit-compiler/utils/generate.py
-index 449723b8fa26..ecba44efe071 100644
+index 96a7ec87cce3..c95235080451 100644
 --- a/sycl-jit/jit-compiler/utils/generate.py
 +++ b/sycl-jit/jit-compiler/utils/generate.py
-@@ -49,6 +49,12 @@ const resource_file ToolchainFiles[] = {"""
-         def process_dir(dir):
-             for root, _, files in os.walk(dir):
-                 for file in files:
-+                    # Skip CMake files, because they contain absolute install paths, causing cyclic dependencies.
-+                    # They aren't ever used as it seems, so excluding them won't break anything.
-+                    if file in ['CMakeLists.txt', 'cmake_install.cmake'] or file.endswith('.cmake'):
-+                        print(f"[nix-compat patch] Skipping embedding of sycl-jit CMake file: {os.path.join(root, file)}")
-+                        continue
-+
-                     file_path = os.path.join(root, file)
-                     process_file(file_path)
- 
+@@ -37,6 +37,9 @@ const resource_file ToolchainFiles[] = {"""
+             # We only need .bc files from libdevice:
+             if re.search(r"[/\\]libsycl-.*\.(o|obj|spv)$", file_path):
+                 return
++            # Avoid leaking paths to the build directory:
++            if re.search(r"[/\\](CMakeLists\.txt|cmake_install\.cmake|.*\.cmake)$", file_path):
++                return
+             out.write(
+                 f"""
+ {{
