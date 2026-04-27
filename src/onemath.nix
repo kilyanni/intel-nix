@@ -65,6 +65,9 @@ in
       sha256 = "sha256-jVcrpne6OyOeUlQHg07zZXEyFXvEGCYW88sWnYgEeu8=";
     };
 
+    strictDeps = true;
+    __structuredAttrs = true;
+
     nativeBuildInputs =
       [
         cmake

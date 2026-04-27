@@ -61,6 +61,9 @@ in
       "doc"
     ];
 
+    strictDeps = true;
+    __structuredAttrs = true;
+
     nativeBuildInputs =
       [cmake]
       ++ lib.optionals useSycl [gcc]

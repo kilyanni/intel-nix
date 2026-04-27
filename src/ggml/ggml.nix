@@ -23,6 +23,9 @@ intel-llvm.stdenv.mkDerivation {
     hash = "sha256-y+5oyzn4XENMqWWuDVEN8TELYBcJJbA545gwi+82fb4=";
   };
 
+  strictDeps = true;
+  __structuredAttrs = true;
+
   nativeBuildInputs = [
     cmake
     ninja

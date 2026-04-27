@@ -35,6 +35,9 @@ in
       hash = "sha256-TeS1lGKEzkHOoBemy/tMGtIsy0iouj9DTYIgTjUNcQk=";
     };
 
+    strictDeps = true;
+    __structuredAttrs = true;
+
     nativeBuildInputs = [
       cmake
       ninja
