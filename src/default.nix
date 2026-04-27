@@ -109,6 +109,10 @@
   in {
     llvm = intel-llvm;
     inherit oneMath oneDNN ggml whisper-cpp llama-cpp khronos-sycl-cts oneMath-sycl-blas oneMath-sycl-blas-tuned syclcompat;
+    tests = {
+      whisper-e2e = callPackage ./ggml/whisper-e2e-test.nix {inherit whisper-cpp;};
+      llama-e2e = callPackage ./ggml/llama-e2e-test.nix {inherit llama-cpp;};
+    };
   };
 
   # packages.${toolchain}.${backend}.${pkg}

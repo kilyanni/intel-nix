@@ -29,7 +29,7 @@
   ccacheStdenv,
   rocmPackages ? {},
   cudaPackages ? {},
-  levelZeroSupport ? true,
+  levelZeroSupport ? !(cudaSupport || rocmSupport),
   openclSupport ? true,
   cudaSupport ? false,
   rocmSupport ? false,
@@ -593,6 +593,10 @@ in
             (lib.cmakeBool "LLVM_HAS_NVPTX_TARGET" cudaSupport)
           ]
           ++ unified-runtime'.cmakeFlags;
+
+        # hwloc is in buildInputs (via unified-runtime'.buildInputs) but cmake doesn't
+        # automatically link it; the same workaround is needed as in unified-runtime.nix.
+        NIX_LDFLAGS = "-lhwloc";
       });
 
       libdevice = stdenv.mkDerivation (
