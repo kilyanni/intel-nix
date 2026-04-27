@@ -282,6 +282,7 @@ in
           + ''
             ln -s ${llvmFinal.llvm}/bin/llvm-foreach $out/bin/llvm-foreach
             ln -s ${llvmFinal.llvm}/bin/llvm-link $out/bin/llvm-link
+            ln -s ${llvmFinal.llvm}/bin/llvm-objcopy $out/bin/llvm-objcopy
             ln -s ${llvmFinal.llvm}/bin/sycl-post-link $out/bin/sycl-post-link
             ln -s ${llvmFinal.llvm}/bin/file-table-tform $out/bin/file-table-tform
             ln -s ${llvmFinal.lld}/bin/lld $out/bin/lld
