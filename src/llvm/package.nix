@@ -122,11 +122,15 @@
             echo "-rpath-link,${self.unwrapped.unified-runtime.setupVars.CUDA_PATH}/lib/stubs" >> $out/nix-support/cc-ldflags
           ''}
         '';
-      }).overrideAttrs
-      (old: {
-        # OpenCL needs to be passed through
-        propagatedBuildInputs = old.propagatedBuildInputs ++ self.unwrapped.propagatedBuildInputs;
+
+        extraPackages = [ self.unwrapped.dev ]
+          ++ self.unwrapped.propagatedBuildInputs;
       });
+      #.overrideAttrs
+      #(old: {
+      #  # OpenCL needs to be passed through
+      #  propagatedBuildInputs = old.propagatedBuildInputs ++ self.unwrapped.propagatedBuildInputs;
+      #});
 
     clang-tools-wrapper = callPackage ./clang-tools.nix {
       inherit (self) unwrapped wrapper;
