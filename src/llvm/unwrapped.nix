@@ -137,6 +137,8 @@ in
     ];
 
     cmakeBuildType = "Release";
+    # separateDebugInfo = true;
+    stripDebugFlags = ["--strip-unneeded"];
 
     patches = [
       # Fix paths so the output can be split properly
