@@ -12,7 +12,6 @@
   rocmPackages ? {},
   cudaPackages ? {},
   useMKL ? false,
-  useGenericBlas ? true,
   rocmSupport ? false,
   cudaSupport ? false,
   rocmGpuTargets ?
@@ -23,7 +22,8 @@
   cudaGpuArch ? "sm_75",
 }: let
   version = "0.9";
-  stdenv = intel-llvm.stdenv;
+
+  useGenericBlas = !cudaSupport && !rocmSupport;
 
   cudatoolkit_joined = symlinkJoin {
     name = "cuda-toolkit-joined";
@@ -55,9 +55,10 @@
     '';
   };
 in
-  stdenv.mkDerivation {
+  intel-llvm.stdenv.mkDerivation {
     pname = "oneMath";
     version = version;
+
     src = fetchFromGitHub {
       owner = "uxlfoundation";
       repo = "oneMath";
@@ -84,35 +85,33 @@ in
         opencl-headers
       ]
       ++ lib.optionals useMKL [mkl]
-      ++ lib.optionals (useGenericBlas && !rocmSupport && !cudaSupport) [oneMath-sycl-blas]
+      ++ lib.optionals useGenericBlas [oneMath-sycl-blas]
       ++ lib.optionals rocmSupport (with rocmPackages; [
-        clr # Provides HIP
+        clr
         rocblas
         rocfft
         rocsolver
         rocrand
-        #rocsparse
       ])
-      ++ lib.optionals cudaSupport [
-        cudatoolkit_joined
-      ];
+      ++ lib.optionals cudaSupport [cudatoolkit_joined];
 
     # Pass GPU architecture to SYCL CUDA backend (CUDA 13 dropped sm_60)
     env = lib.optionalAttrs cudaSupport {
       CXXFLAGS = "-Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${cudaGpuArch}";
     };
 
+    hardeningDisable = [
+      "pacret"
+      "shadowstack"
+    ];
+
     cmakeFlags =
       [
-        # Requires closed source icpx + mkl
+        (lib.cmakeFeature "ONEMATH_SYCL_IMPLEMENTATION" "dpc++")
+
+        # Requires closed-source icpx + mkl
         (lib.cmakeBool "ENABLE_MKLCPU_BACKEND" useMKL)
         (lib.cmakeBool "ENABLE_MKLGPU_BACKEND" useMKL)
-
-        (lib.cmakeBool "ENABLE_CUBLAS_BACKEND" cudaSupport)
-        (lib.cmakeBool "ENABLE_CUSOLVER_BACKEND" cudaSupport)
-        (lib.cmakeBool "ENABLE_CUFFT_BACKEND" cudaSupport)
-        (lib.cmakeBool "ENABLE_CURAND_BACKEND" cudaSupport)
-        (lib.cmakeBool "ENABLE_CUSPARSE_BACKEND" cudaSupport)
 
         (lib.cmakeBool "ENABLE_NETLIB_BACKEND" false)
 
@@ -120,28 +119,33 @@ in
         (lib.cmakeBool "ENABLE_ARMPL_OMP" true)
         (lib.cmakeBool "ENABLE_ARMPL_OPENRNG" false)
 
-        (lib.cmakeBool "ENABLE_ROCBLAS_BACKEND" rocmSupport)
-        (lib.cmakeBool "ENABLE_ROCFFT_BACKEND" rocmSupport)
-        (lib.cmakeBool "ENABLE_ROCSOLVER_BACKEND" rocmSupport)
-        (lib.cmakeBool "ENABLE_ROCRAND_BACKEND" rocmSupport)
-        # Currently broken
-        # (lib.cmakeBool "ENABLE_ROCSPARSE_BACKEND" rocmSupport)
-
         (lib.cmakeBool "ENABLE_MKLCPU_THREAD_TBB" true)
 
-        # Required onemath-sycl-blas (cannot be used with other BLAS backends)
-        (lib.cmakeBool "ENABLE_GENERIC_BLAS_BACKEND" (useGenericBlas && !rocmSupport && !cudaSupport))
+        (lib.cmakeBool "ENABLE_GENERIC_BLAS_BACKEND" useGenericBlas)
 
         (lib.cmakeBool "ENABLE_PORTFFT_BACKEND" false)
 
         (lib.cmakeBool "BUILD_FUNCTIONAL_TESTS" false)
         (lib.cmakeBool "BUILD_EXAMPLES" false)
       ]
-      ++ lib.optionals rocmSupport [
-        (lib.cmakeFeature "HIP_TARGETS" rocmGpuTargets)
-      ]
       ++ lib.optionals cudaSupport [
+        (lib.cmakeBool "ENABLE_CUBLAS_BACKEND" true)
+        (lib.cmakeBool "ENABLE_CUSOLVER_BACKEND" true)
+        (lib.cmakeBool "ENABLE_CUFFT_BACKEND" true)
+        (lib.cmakeBool "ENABLE_CURAND_BACKEND" true)
+        (lib.cmakeBool "ENABLE_CUSPARSE_BACKEND" true)
+
         (lib.cmakeFeature "CUDA_TOOLKIT_ROOT_DIR" "${cudatoolkit_joined}")
         (lib.cmakeFeature "CUDA_CUDA_LIBRARY" "${cudaPackages.cuda_cudart}/lib/stubs/libcuda.so")
+      ]
+      ++ lib.optionals rocmSupport [
+        (lib.cmakeBool "ENABLE_ROCBLAS_BACKEND" true)
+        (lib.cmakeBool "ENABLE_ROCFFT_BACKEND" true)
+        (lib.cmakeBool "ENABLE_ROCSOLVER_BACKEND" true)
+        (lib.cmakeBool "ENABLE_ROCRAND_BACKEND" true)
+        # Currently broken upstream
+        # (lib.cmakeBool "ENABLE_ROCSPARSE_BACKEND" true)
+
+        (lib.cmakeFeature "HIP_TARGETS" rocmGpuTargets)
       ];
   }
