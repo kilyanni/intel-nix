@@ -96,9 +96,8 @@
           # ccache needs a writable /var/cache/ccache bound into the build
           # sandbox, which CI runners (and remote builders) do not have — the
           # wrapper aborts at cmake's "check for working C compiler". This set
-          # is the same packages built without it. Note src.packages-no-ccache
-          # only covers the packages.* matrix; this also covers the top-level
-          # llvm-monolithic / llvm-standalone attributes CI builds.
+          # is the whole `src` set built without it, top-level
+          # llvm-monolithic / llvm-standalone included.
           src-no-ccache = pkgs.callPackage ./src {useCcache = false;};
 
           toolkits = pkgs.callPackage ./toolkits {};

@@ -59,11 +59,12 @@
   # Mirrors nixpkgs' stdenv vs ccacheStdenv as a callsite decision.
   # Adds passthru.stdenv = ccache-wrapped variant when ccache is on.
   #
-  # Everything ccache-aware below takes `ccache` as a parameter instead of
-  # closing over the top-level `useCcache`. That is what makes
-  # `packages-no-ccache` actually ccache-free — it is needed for remote
-  # builders, which have no /var/cache/ccache and abort at CMake's
-  # "check for working C compiler".
+  # Everything ccache-aware below takes `ccache` as a parameter rather than
+  # closing over the top-level `useCcache`, so a single instantiation stays
+  # internally consistent. Pass `useCcache = false` for builders without a
+  # writable /var/cache/ccache (CI runners, remote builders) — they otherwise
+  # abort at CMake's "check for working C compiler". The flake exposes that as
+  # the `src-no-ccache` output.
   mkIntelLlvm = ccache: llvm:
     if ccache
     then (applyCcacheToScope llvm) // {stdenv = mkCcacheIntelStdenv llvm;}
@@ -194,7 +195,6 @@
     (baseToolchains ccache);
 
   packages = makePackageSets useCcache;
-  packages-no-ccache = makePackageSets false;
 in
   {
     # ── LLVM toolchains ────────────────────────────────────────────────────────
@@ -211,6 +211,6 @@ in
     # toolchains: monolithic, standalone
     # backends:   l0, rocm, cuda
     # pkgs:       llvm, oneMath, oneDNN, ggml, whisper-cpp, llama-cpp, khronos-sycl-cts
-    inherit packages packages-no-ccache;
+    inherit packages;
   }
   // packages.monolithic.l0

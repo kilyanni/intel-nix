@@ -27,7 +27,7 @@ usage: $0 [options] <attr>...
   <attr>               flake attribute(s), e.g. src.packages.monolithic.rocm.oneDNN
   -H, --host HOST      ssh host (default: read from /etc/nix/machines-work)
   -i, --ssh-key FILE   ssh identity file (default: from /etc/nix/machines-work)
-      --no-ccache      build the ccache-free variant (packages-no-ccache);
+      --no-ccache      build via the src-no-ccache flake output instead;
                        needs no cache dir on the remote
 
 NOTE: the cache size is CCACHE_MAXSIZE in flake.nix (10G at time of writing).
@@ -93,9 +93,9 @@ fi
 # checkout it does not have.
 targets=()
 for a in "${attrs[@]}"; do
-  # With --no-ccache, redirect src.packages.* to the genuinely ccache-free
-  # src.packages-no-ccache.* so the same attribute path works either way.
-  [ "$no_ccache" -eq 1 ] && a="${a/#src.packages./src.packages-no-ccache.}"
+  # With --no-ccache, swap the src.* root for src-no-ccache.* so the same
+  # attribute path works either way.
+  [ "$no_ccache" -eq 1 ] && a="${a/#src./src-no-ccache.}"
   targets+=("path:$src#$a")
 done
 
