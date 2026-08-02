@@ -156,8 +156,36 @@ Keep the diff against the PR branch small so changes flow both ways.
 [#514640](https://github.com/NixOS/nixpkgs/pull/514640) (`oneMath` +
 `generic-sycl-components`), with MKL support and the `cudaGpuArch` knob added on top.
 
+## CI (`.github/`)
+
+`build.yml` drives the composite action in `.github/actions/nix-build/`.
+
+- It builds **`src-no-ccache.*`**, not `src.*`. The default set has
+  `useCcache = true`, which needs a writable `/var/cache/ccache` bound into the
+  build sandbox; hosted runners have none and the wrapper aborts at cmake's
+  "check for working C compiler".
+- The action's `free` input selects the pure path; unfree components (the
+  oneAPI toolkits) need `free: "false"`, which switches to `--impure` +
+  `NIXPKGS_ALLOW_UNFREE`. It is compared as a *string* — comparing against a
+  bare `true`/`false` silently misbehaves, since GitHub coerces operands to
+  numbers and an undeclared input is `''`.
+- `passthru.impureTests` must never be referenced from CI: those need root and
+  a real GPU.
+- Test attributes are per-backend (`sycl-compile-<target>`); there is no plain
+  `sycl-compile`.
+
+Known gaps, deliberately not addressed:
+
+- A full intel-llvm build on a 4-core hosted runner is likely to exceed the
+  6 hour job limit, and disk is tight even with the `free-disk-space` step.
+- The standalone chain (`llvm` -> stage1 -> stage2) is built but never
+  exercised: every downstream job resolves to the monolithic l0 default. The
+  `packages.${toolchain}.${backend}` matrix is not covered at all.
+
 ## Nix Gotchas
 
 - Never use `2>&1` with nix commands — it breaks output
-- The `ccacheWrapper` overlay in `flake.nix` patches `ccacheWrapper` to forward `hardeningUnsupportedFlags*` from the original compiler — without this, `zerocallusedregs` re-enters `defaultHardeningFlags` and breaks downstream SPIR-V compilations
+- The `ccacheWrapper` overlay in `flake.nix` forwards attributes that `ccache.links` drops from `cc.cc`, because cc-wrapper reads them off the `cc` argument:
+  - `hardeningUnsupportedFlags*` — without these, `zerocallusedregs` re-enters `defaultHardeningFlags` and breaks downstream SPIR-V compilations. (Upstream `ccache.links` now forwards these itself, but keeping them is harmless.)
+  - `langC`/`langCC` — cc-wrapper only emits the `-cxx-isystem` libstdc++ paths when `cc.langCC` is set. Without it `nix-support/libcxx-cxxflags` comes out **empty** while `-nostdlibinc` is still applied, so every C++ compile fails to find `<atomic>`. Only bites *clang* stdenvs, which is why the gcc-based default never showed it. This is an upstream nixpkgs bug worth reporting: `ccache.links` forwards `isClang`/`isGNU` but not `langCC`.
 - `LLVM_INSTALL_PACKAGE_DIR` is set to an absolute `$dev` path; this causes `FindPrefixFromConfig.cmake` to hardcode `_IMPORT_PREFIX=$out`, so all cmake exports must use absolute `$dev/include` paths (not `_IMPORT_PREFIX`-relative)
