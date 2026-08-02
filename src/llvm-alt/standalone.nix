@@ -388,6 +388,11 @@ in
                 inherit (llvmFinal) stdenv;
                 inherit (unified-runtime') backends;
               };
+              # Need a real GPU; see ../llvm/impure-tests.nix for how to run one.
+              impureTests = callPackage ../llvm/impure-tests.nix {
+                inherit (llvmFinal) stdenv;
+                inherit (unified-runtime') backends;
+              };
             };
         });
 

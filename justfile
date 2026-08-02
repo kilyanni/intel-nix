@@ -29,3 +29,24 @@ test-llama variant="monolithic.rocm" *args="":
 # target: spir64, native_cpu, amdgcn-amd-amdhsa, nvptx64-nvidia-cuda
 test-sycl-compile target="spir64" variant="monolithic.l0":
     nix build --builders '' --print-build-logs '.#src.packages.{{variant}}.llvm.passthru.tests.sycl-compile-{{target}}'
+
+# Actually RUN a SYCL kernel on a real GPU. Needs root: the test executes inside
+# the nix sandbox with GPU device nodes bound in via --extra-sandbox-paths.
+# makeImpureTest's own runner uses `nix-build -A`, which does not resolve in a
+# flake, so invoke the testDerivation directly instead.
+#
+# backend: level_zero, opencl (Intel) | hip (AMD) | cuda (NVIDIA)
+# List what a toolchain offers:
+#   nix eval '.#src.packages.monolithic.rocm.llvm.passthru.impureTests' --apply builtins.attrNames
+#
+# AOT backends (hip, cuda) are compiled for a fixed arch — override it if your
+# GPU differs, e.g.
+#   nix build '.#src.packages.monolithic.rocm.llvm.passthru.impureTests.override' ...
+#
+# /run/opengl-driver is a symlink into the store and nix does not follow
+# symlinks when binding sandbox paths, so it is mapped explicitly below.
+test-sycl-run backend="hip" variant="monolithic.rocm" paths="/sys /dev/dri /dev/kfd":
+    sudo nix build --builders '' --print-build-logs --no-link \
+      --option extra-sandbox-paths \
+        "{{paths}} /run/opengl-driver=$(readlink -f /run/opengl-driver)" \
+      '.#src.packages.{{variant}}.llvm.passthru.impureTests.sycl-run-{{backend}}.testDerivation'

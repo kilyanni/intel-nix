@@ -223,6 +223,13 @@ let
             inherit onedpl;
           };
 
+        # Need a real GPU, so they are kept out of passthru.tests — nothing
+        # that runs unattended should try to build these.
+        impureTests = callPackage ./impure-tests.nix {
+          inherit (self) stdenv;
+          inherit (self.unwrapped.unified-runtime) backends;
+        };
+
         overrideScope = newF: (self.overrideScope newF).merged;
       };
     };
