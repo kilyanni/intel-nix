@@ -1,0 +1,19 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 78549309cafe..ca64142c0429 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -25,6 +25,14 @@ if (LLVM_ENABLE_PROJECTS)
+   include(HandleLLVMOptions)
+ endif()
+ 
++# In standalone builds xpti is installed as an external CMake package exporting
++# the `xpti::xpti` target. add_dependencies/target_link_libraries below
++# reference the bare `xpti` name, so alias it.
++if (NOT TARGET xpti)
++  find_package(xpti REQUIRED)
++  add_library(xpti ALIAS xpti::xpti)
++endif()
++
+ option(XPTI_ENABLE_WERROR OFF)
+ option(XPTI_BUILD_SAMPLES OFF)
+ option(XPTI_BUILD_BENCHMARK OFF)

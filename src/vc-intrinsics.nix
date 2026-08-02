@@ -9,9 +9,11 @@
 }:
 stdenv.mkDerivation {
   pname = "vc-intrinsics";
-  version = "unstable-2025-05-05";
+  version = "unstable-2025-05-29";
 
   #https://github.com/intel/vc-intrinsics
+  # Keep in sync with LLVMGenXIntrinsics_GIT_TAG in intel/llvm's
+  # llvm/lib/SYCLLowerIR/CMakeLists.txt (and with src/llvm-alt/deps.nix).
   src = fetchFromGitHub {
     owner = "intel";
     repo = "vc-intrinsics";

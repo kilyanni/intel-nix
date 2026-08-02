@@ -1,0 +1,163 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1a45e5a8f846..ad4e6ecee5ff 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -6,6 +6,62 @@ set(CMAKE_MODULE_PATH
+   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules"
+   )
+ 
++if(NOT LLVM_MAIN_SRC_DIR)
++  cmake_minimum_required(VERSION 3.20)
++  project(libdevice C CXX)
++
++  find_package(LLVM REQUIRED CONFIG)
++  include(AddLLVM)
++
++  # SYCLLibdevice.cmake emits a device library per LLVM target, and those
++  # compiles carry requirements the LLVM build itself does not -- the NVPTX ones
++  # need a CUDA toolkit for clang to select a PTX ISA, and without one it falls
++  # back to +ptx42 and cannot target sm_75. find_package(LLVM) sets
++  # LLVM_TARGETS_TO_BUILD to everything the installed LLVM was built for, which
++  # overwrites any -D on the command line, so offer an explicit narrowing knob
++  # for packagers who only ship one backend.
++  if(LIBDEVICE_TARGETS_TO_BUILD)
++    set(LLVM_TARGETS_TO_BUILD "${LIBDEVICE_TARGETS_TO_BUILD}")
++  endif()
++
++  # LLVMConfig does not export the monorepo source directory or the host
++  # executable suffix; provide equivalents so the shared logic below works
++  # the same as in the monorepo build.
++  if(NOT DEFINED LLVM_SOURCE_DIR)
++    set(LLVM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../llvm)
++  endif()
++  if(NOT DEFINED LLVM_HOST_EXECUTABLE_SUFFIX)
++    set(LLVM_HOST_EXECUTABLE_SUFFIX ${CMAKE_EXECUTABLE_SUFFIX})
++  endif()
++
++  # Device libraries are installed to lib/dpcpp-${DPCPP_VERSION_MAJOR}/sycl
++  # (see SYCLLibdevice.cmake) and the clang driver searches that path. Reuse
++  # the monorepo version defaults unless the version is provided explicitly.
++  if(NOT DEFINED DPCPP_VERSION_MAJOR)
++    include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Modules/DPCPPVersion.cmake)
++  endif()
++
++  find_path(SYCL_INCLUDE_DIR sycl/sycl.hpp
++    HINTS ${LLVM_INCLUDE_DIRS}
++    REQUIRED)
++  set(LIBDEVICE_SYCL_INCLUDE_DIR ${SYCL_INCLUDE_DIR})
++  set(LLVM_NATIVE_TOOL_DIR ${LLVM_TOOLS_BINARY_DIR})
++  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX})
++  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
++  # sycl_*_dep add libdevice targets to monorepo-level CMake targets.
++  # When building standalone, these don't exist.
++  # Instead, attach libsycldevice to the ALL target via
++  # LIBDEVICE_DEFAULT_TARGET.
++  set(sycl_compiler_dep)
++  set(sycl_headers_dep)
++  set(LIBDEVICE_DEFAULT_TARGET ALL)
++else()
++  set(LIBDEVICE_SYCL_INCLUDE_DIR ${PROJECT_BINARY_DIR}/include)
++  set(sycl_compiler_dep sycl-compiler)
++  set(sycl_headers_dep sycl-headers)
++  set(LIBDEVICE_DEFAULT_TARGET)
++endif()
++
+ set(UR_INTREE_SOURCE_DIR "${LLVM_SOURCE_DIR}/../unified-runtime")
+ cmake_path(NORMAL_PATH UR_INTREE_SOURCE_DIR OUTPUT_VARIABLE UR_INTREE_SOURCE_DIR)
+ 
+@@ -34,8 +90,9 @@ if(NOT EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR})
+   get_host_tool_path(llvm-spirv LLVM_SPIRV llvm-spirv_exe llvm-spirv_target)
+   get_host_tool_path(sycl-post-link SYCL_POST_LINK sycl-post-link_exe sycl-post-link_target)
+   get_host_tool_path(llvm-link LLVM_LINK llvm-link_exe llvm-link_target)
++  get_host_tool_path(opt OPT opt_exe opt_target)
+ else()
+-  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link)
++  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link opt)
+     find_program(LLVM_CUSTOM_TOOL_${tool} ${tool}
+       PATHS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
+     set(${tool}_exe ${LLVM_CUSTOM_TOOL_${tool}})
+@@ -43,6 +100,22 @@ else()
+   endforeach()
+ endif()
+ 
++if(NOT LLVM_MAIN_SRC_DIR)
++  # In a standalone build every tool must resolve to an existing executable.
++  # Fail at configure time with a clear message instead of generating build
++  # rules that fail later with obscure errors.
++  foreach(tool IN ITEMS clang llvm-ar append-file clang-offload-bundler llvm-offload-binary file-table-tform llvm-foreach llvm-spirv sycl-post-link llvm-link opt)
++    if(NOT EXISTS "${${tool}_exe}")
++      message(FATAL_ERROR
++        "libdevice standalone build: required tool '${tool}' was not found "
++        "(resolved to '${${tool}_exe}'). Provide it via "
++        "LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR, place it in the LLVM tools "
++        "directory (${LLVM_TOOLS_BINARY_DIR}), or set an explicit cache "
++        "override for it.")
++    endif()
++  endforeach()
++endif()
++
+ # Build libdevice for SYCL.
+ include(SYCLLibdevice)
+ 
+diff --git a/cmake/modules/SYCLLibdevice.cmake b/cmake/modules/SYCLLibdevice.cmake
+index 4f7d06e668ba..f8209c3ae449 100644
+--- a/cmake/modules/SYCLLibdevice.cmake
++++ b/cmake/modules/SYCLLibdevice.cmake
+@@ -74,7 +74,7 @@ if (WIN32)
+   list(APPEND compile_opts -D_ALLOW_ITERATOR_DEBUG_LEVEL_MISMATCH)
+ endif()
+ 
+-add_custom_target(libsycldevice)
++add_custom_target(libsycldevice ${LIBDEVICE_DEFAULT_TARGET})
+ 
+ set(filetypes bc)
+ 
+@@ -149,7 +149,7 @@ function(compile_lib_ext filename)
+ 
+   add_custom_command(
+     OUTPUT ${devicelib-file}
+-    COMMAND ${clang_exe} -I ${PROJECT_BINARY_DIR}/include
++    COMMAND ${clang_exe} -I ${LIBDEVICE_SYCL_INCLUDE_DIR}
+             ${ARG_OPTS}
+             ${CMAKE_CURRENT_SOURCE_DIR}/${ARG_SRC} -o ${devicelib-file}
+     MAIN_DEPENDENCY ${ARG_SRC}
+@@ -331,7 +331,7 @@ endfunction()
+ # For native builds, sycl-compiler will already include everything we need.
+ # For cross builds, we also need native versions of the tools.
+ set(sycl-compiler_deps
+-  sycl-compiler ${clang_target} ${append-file_target}
++  ${sycl_compiler_dep} ${clang_target} ${append-file_target}
+   ${clang-offload-bundler_target} ${llvm-offload-binary_target}
+   ${file-table-tform_target} ${llvm-foreach_target} ${llvm-spirv_target}
+   ${sycl-post-link_target})
+@@ -340,7 +340,7 @@ set(complex_obj_deps device_complex.h device.h ${sycl-compiler_deps})
+ set(cmath_obj_deps device_math.h device.h ${sycl-compiler_deps})
+ set(imf_obj_deps device_imf.hpp imf_half.hpp imf_bf16.hpp imf_rounding_op.hpp imf_impl_utils.hpp device.h ${sycl-compiler_deps})
+ set(itt_obj_deps device_itt.h spirv_vars.h device.h ${sycl-compiler_deps})
+-set(bfloat16_obj_deps sycl-headers ${sycl-compiler_deps})
++set(bfloat16_obj_deps ${sycl_headers_dep} ${sycl-compiler_deps})
+ if (NOT MSVC AND UR_SANITIZER_INCLUDE_DIR)
+   set(asan_obj_deps
+     device.h atomic.hpp spirv_vars.h
+@@ -412,11 +412,11 @@ if("native_cpu" IN_LIST SYCL_ENABLE_BACKENDS)
+     OUTPUT ${bc_binary_dir}/nativecpu_utils.bc
+     COMMAND ${clang_exe} ${compile_opts} ${bc_device_compile_opts}
+       -fsycl-targets=native_cpu -fno-sycl-libspirv -Wno-unsafe-libspirv-not-linked
+-      -I ${PROJECT_BINARY_DIR}/include -I ${NATIVE_CPU_DIR}
++      -I ${LIBDEVICE_SYCL_INCLUDE_DIR} -I ${NATIVE_CPU_DIR}
+       ${CMAKE_CURRENT_SOURCE_DIR}/nativecpu_utils.cpp
+       -o ${bc_binary_dir}/nativecpu_utils.bc
+     MAIN_DEPENDENCY nativecpu_utils.cpp
+-    DEPENDS sycl-headers ${sycl-compiler_deps}
++    DEPENDS ${sycl_headers_dep} ${sycl-compiler_deps}
+     VERBATIM)
+   add_custom_target(nativecpu_utils-bc DEPENDS ${bc_binary_dir}/nativecpu_utils.bc)
+   process_bc(libsycl-nativecpu_utils.bc
+@@ -868,4 +868,6 @@ add_custom_target(install-libsycldevice
+   COMMAND ${CMAKE_COMMAND} -DCMAKE_INSTALL_COMPONENT=libsycldevice -P ${CMAKE_BINARY_DIR}/cmake_install.cmake
+   DEPENDS ${libsycldevice_build_targets}
+ )
+-add_dependencies(deploy-sycl-toolchain install-libsycldevice)
++if (TARGET deploy-sycl-toolchain)
++  add_dependencies(deploy-sycl-toolchain install-libsycldevice)
++endif()

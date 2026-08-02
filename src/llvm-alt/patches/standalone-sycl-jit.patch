@@ -1,43 +1,65 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index a4960e4fa3cf..8415ecefca0b 100644
+index a4960e4fa3cf..43764ee0b7e4 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1,5 +1,14 @@
+@@ -1,5 +1,21 @@
  cmake_minimum_required(VERSION 3.20.0 FATAL_ERROR)
  
 +# Standalone build support
 +if(NOT LLVM_MAIN_SRC_DIR)
++  project(sycl-jit C CXX)
++  option(SYCL_JIT_INCLUDE_TESTS
++    "Generate build targets for the sycl-jit lit tests." OFF)
 +  find_package(LLVM REQUIRED CONFIG)
++  list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
 +  include(AddLLVM)
++  include(HandleLLVMOptions)
 +  find_package(Clang REQUIRED CONFIG)
 +  find_package(Python3 REQUIRED)
++  # Standard in LLVM-family standalone builds (clang/lld/mlir/flang/lldb all
++  # set this); makes generated headers under the binary tree visible.
 +  set(CMAKE_INCLUDE_CURRENT_DIR ON)
 +endif()
 +
  # Define a variable holding the root directory of the JIT compiler project
  # for use in includes etc.
  set(SYCL_JIT_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-@@ -7,7 +16,14 @@ set(SYCL_JIT_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+@@ -7,7 +23,18 @@ set(SYCL_JIT_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
  # For some reason, the LLVMSPIRVLib does not define any public includes.
  # To link against the library, define the following link to its include
  # directories, similar to how clang/CMakeLists.txt does it.
 -set(LLVM_SPIRV_INCLUDE_DIRS "${LLVM_MAIN_SRC_DIR}/../llvm-spirv/include")
 +if(NOT LLVM_SPIRV_INCLUDE_DIRS)
++  if(NOT LLVM_MAIN_SRC_DIR)
++    message(FATAL_ERROR
++      "LLVM_SPIRV_INCLUDE_DIRS must be set for standalone sycl-jit builds.\n"
++      "Pass -DLLVM_SPIRV_INCLUDE_DIRS=<path-to-llvm-spirv/include>.")
++  endif()
 +  set(LLVM_SPIRV_INCLUDE_DIRS "${LLVM_MAIN_SRC_DIR}/../llvm-spirv/include")
 +endif()
 +
-+# In standalone builds, sycl-headers target doesn't exist.
-+if(NOT TARGET sycl-headers)
++if(NOT LLVM_MAIN_SRC_DIR AND NOT TARGET sycl-headers)
 +  add_custom_target(sycl-headers)
 +endif()
  
  if (NOT WIN32 AND NOT CYGWIN)
    # Set library-wide warning options.
+@@ -26,5 +53,9 @@ add_subdirectory(passes)
+ # Loadable plugins for opt aren't supported on Windows,
+ # so we can't execute the tests.
+ if (NOT WIN32 AND NOT CYGWIN)
+-  add_subdirectory(test)
++  # The lit suite requires in-tree build targets (opt, FileCheck); in
++  # standalone builds it is opt-in via SYCL_JIT_INCLUDE_TESTS.
++  if(LLVM_MAIN_SRC_DIR OR SYCL_JIT_INCLUDE_TESTS)
++    add_subdirectory(test)
++  endif()
+ endif()
 diff --git a/jit-compiler/CMakeLists.txt b/jit-compiler/CMakeLists.txt
-index 30ef7f7205dd..980aa6640efa 100644
+index 30ef7f7205dd..8fe26a810879 100644
 --- a/jit-compiler/CMakeLists.txt
 +++ b/jit-compiler/CMakeLists.txt
-@@ -10,47 +10,55 @@ set(SYCL_JIT_VIRTUAL_TOOLCHAIN_ROOT "/sycl-jit-toolchain/")
+@@ -10,47 +10,68 @@ set(SYCL_JIT_VIRTUAL_TOOLCHAIN_ROOT "/sycl-jit-toolchain/")
  endif()
  
  
@@ -50,7 +72,20 @@ index 30ef7f7205dd..980aa6640efa 100644
 -  OpenCL-Headers
 -  clang-resource-headers
 -  libsycldevice)
-+if(SYCL_JIT_RESOURCE_DIR)
++if(NOT LLVM_MAIN_SRC_DIR)
++  if(NOT SYCL_JIT_RESOURCE_DIR)
++    message(FATAL_ERROR
++      "SYCL_JIT_RESOURCE_DIR is required for standalone sycl-jit builds.\n"
++      "Pass -DSYCL_JIT_RESOURCE_DIR=<path-to-pre-staged-resources>.")
++  endif()
++  # Normalize to an absolute path so IS_DIRECTORY and the file(GLOB_RECURSE)
++  # below behave reliably when a relative path is passed on the command line.
++  file(REAL_PATH "${SYCL_JIT_RESOURCE_DIR}" SYCL_JIT_RESOURCE_DIR
++    BASE_DIRECTORY "${CMAKE_BINARY_DIR}")
++  if(NOT IS_DIRECTORY "${SYCL_JIT_RESOURCE_DIR}")
++    message(FATAL_ERROR
++      "SYCL_JIT_RESOURCE_DIR='${SYCL_JIT_RESOURCE_DIR}' is not a directory.")
++  endif()
 +  # Standalone: resources are pre-staged, skip cmake --install pipeline.
 +  set(SYCL_JIT_RESOURCE_DEPS)
 +  set(SYCL_JIT_RESOURCE_INSTALL_DIR "${SYCL_JIT_RESOURCE_DIR}")
@@ -130,7 +165,35 @@ index 30ef7f7205dd..980aa6640efa 100644
  
  add_custom_command(
    OUTPUT ${SYCL_JIT_RESOURCE_CPP}
-@@ -164,12 +172,18 @@ target_compile_options(sycl-jit PRIVATE ${SYCL_JIT_WARNING_FLAGS})
+@@ -66,7 +87,12 @@ add_custom_command(
+ # CMAKE_CXX_COMPILER might not have support for it. As such, use freshly built
+ # `clang++` instead.
+ if (WIN32)
+-  set(clang_exe ${CMAKE_BINARY_DIR}/bin/clang-cl.exe)
++  if(LLVM_MAIN_SRC_DIR)
++    set(clang_exe ${CMAKE_BINARY_DIR}/bin/clang-cl.exe)
++  else()
++    find_program(clang_exe NAMES clang-cl
++      PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH REQUIRED)
++  endif()
+   set(SYCL_JIT_RESOURCE_CXX_FLAGS /O2 /std:c++17 /W0)
+ 
+   # Determine if we should use static (/MT) or dynamic (/MD) runtime
+@@ -77,7 +103,12 @@ if (WIN32)
+ 
+   list(APPEND SYCL_JIT_RESOURCE_CXX_FLAGS /M$<IF:${USE_STATIC_RUNTIME},T,D>$<$<CONFIG:Debug>:d>)
+ else()
+-  get_host_tool_path( clang CLANG clang_exe clang_target )
++  if(LLVM_MAIN_SRC_DIR)
++    get_host_tool_path( clang CLANG clang_exe clang_target )
++  else()
++    find_program(clang_exe NAMES clang
++      PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH REQUIRED)
++  endif()
+   set(SYCL_JIT_RESOURCE_CXX_FLAGS -O2 -Wno-c23-extensions -std=c++17 -fPIC -fvisibility=hidden)
+ 
+   if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+@@ -164,12 +195,18 @@ target_compile_options(sycl-jit PRIVATE ${SYCL_JIT_WARNING_FLAGS})
  # Mark LLVM and SPIR-V headers as system headers to ignore warnigns in them.
  # This classification remains intact even if the same paths are added as normal
  # include paths in GCC and Clang.

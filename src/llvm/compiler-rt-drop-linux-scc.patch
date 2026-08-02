@@ -1,0 +1,51 @@
+[compiler-rt][sanitizer] Remove linux/scc.h
+
+Backport of upstream LLVM commit 3dc4fd6dd411 (llvm/llvm-project#194116),
+which is on intel/llvm's `sycl` branch but not on the v7.0.0 release branch.
+
+Linux 7.x removed <linux/scc.h> along with the AX.25 SCC drivers, so
+nixpkgs' linuxHeaders >= 7.1 no longer ships it and sanitizer_common
+fails to compile. Drop the include and the two struct size probes that
+depend on it.
+
+Can be dropped once the pin moves to a release that carries the fix.
+
+diff --git a/compiler-rt/lib/sanitizer_common/sanitizer_platform_limits_posix.cpp b/compiler-rt/lib/sanitizer_common/sanitizer_platform_limits_posix.cpp
+index ea8cc306268c..0109df531e88 100644
+--- a/compiler-rt/lib/sanitizer_common/sanitizer_platform_limits_posix.cpp
++++ b/compiler-rt/lib/sanitizer_common/sanitizer_platform_limits_posix.cpp
+@@ -151,16 +151,15 @@ typedef struct user_fpregs elf_fpregset_t;
+ #if defined(__mips64)
+ # include <sys/procfs.h>
+ #endif
+-#include <sys/user.h>
+-#include <linux/if_eql.h>
+-#include <linux/if_plip.h>
+-#include <linux/lp.h>
+-#include <linux/mroute.h>
+-#include <linux/mroute6.h>
+-#include <linux/scc.h>
+-#include <linux/serial.h>
+-#include <sys/msg.h>
+-#include <sys/ipc.h>
++#      include <linux/if_eql.h>
++#      include <linux/if_plip.h>
++#      include <linux/lp.h>
++#      include <linux/mroute.h>
++#      include <linux/mroute6.h>
++#      include <linux/serial.h>
++#      include <sys/ipc.h>
++#      include <sys/msg.h>
++#      include <sys/user.h>
+ #endif  // SANITIZER_ANDROID
+ 
+ #include <link.h>
+@@ -532,8 +531,6 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
+   unsigned struct_kbsentry_sz = sizeof(struct kbsentry);
+   unsigned struct_mtconfiginfo_sz = sizeof(struct mtconfiginfo);
+   unsigned struct_nr_parms_struct_sz = sizeof(struct nr_parms_struct);
+-  unsigned struct_scc_modem_sz = sizeof(struct scc_modem);
+-  unsigned struct_scc_stat_sz = sizeof(struct scc_stat);
+   unsigned struct_serial_multiport_struct_sz
+       = sizeof(struct serial_multiport_struct);
+   unsigned struct_serial_struct_sz = sizeof(struct serial_struct);

@@ -1,19 +1,15 @@
-commit 9a6c977279bdd3a53672adf502593fd80a4c8d8c
-Author: kilyanni <github@nkilian.org>
-Date:   Sun Apr 26 02:21:51 2026 +0200
-
-    [SYCL RTC] Exclude CMake files
-
 diff --git a/sycl-jit/jit-compiler/utils/generate.py b/sycl-jit/jit-compiler/utils/generate.py
-index 96a7ec87cce3..c95235080451 100644
+index 96a7ec87cce3..6e5096ac428d 100644
 --- a/sycl-jit/jit-compiler/utils/generate.py
 +++ b/sycl-jit/jit-compiler/utils/generate.py
-@@ -37,6 +37,9 @@ const resource_file ToolchainFiles[] = {"""
+@@ -37,6 +37,11 @@ const resource_file ToolchainFiles[] = {"""
              # We only need .bc files from libdevice:
              if re.search(r"[/\\]libsycl-.*\.(o|obj|spv)$", file_path):
                  return
 +            # Avoid leaking paths to the build directory:
-+            if re.search(r"[/\\](CMakeLists\.txt|cmake_install\.cmake|.*\.cmake)$", file_path):
++            if re.search(
++                r"[/\\](CMakeLists\.txt|cmake_install\.cmake|.*\.cmake)$", file_path
++            ):
 +                return
              out.write(
                  f"""

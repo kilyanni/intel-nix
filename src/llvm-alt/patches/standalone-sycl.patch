@@ -1,0 +1,486 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9d11782674dd..d05dee4741c9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -39,6 +39,66 @@ if (NOT XPTI_PROXY_SRC)
+   set(XPTI_PROXY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../xpti/src/xpti_proxy.cpp)
+ endif()
+ 
++if(NOT LLVM_MAIN_SRC_DIR)
++  find_package(LLVM REQUIRED CONFIG)
++  include(AddLLVM)
++  # LLVM's CMakeLists.txt sets CMAKE_INCLUDE_CURRENT_DIR ON; standalone
++  # builds need it too (e.g. sycl-trace generated .def files).
++  set(CMAKE_INCLUDE_CURRENT_DIR ON)
++  find_package(Clang REQUIRED CONFIG)
++  # sycl/ always lives in the monorepo checkout, so default LLVM_SOURCE_DIR
++  # to the sibling llvm/ directory; BuildUnifiedRuntime.cmake uses it to
++  # locate ../unified-runtime at the repo root.
++  if(NOT DEFINED LLVM_SOURCE_DIR)
++    set(LLVM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../llvm)
++  endif()
++endif()
++
++# In standalone builds xpti/xptifw are pre-built; create imported targets so
++# existing add_dependencies() calls resolve without error.
++if(NOT LLVM_MAIN_SRC_DIR AND SYCL_ENABLE_XPTI_TRACING)
++  if(NOT TARGET xpti)
++    find_library(XPTI_LIBRARY NAMES xpti REQUIRED)
++    add_library(xpti UNKNOWN IMPORTED GLOBAL)
++    set_target_properties(xpti PROPERTIES IMPORTED_LOCATION "${XPTI_LIBRARY}")
++  endif()
++  if(NOT TARGET xptifw)
++    find_library(XPTIFW_LIBRARY NAMES xptifw REQUIRED)
++    add_library(xptifw UNKNOWN IMPORTED GLOBAL)
++    set_target_properties(xptifw PROPERTIES IMPORTED_LOCATION "${XPTIFW_LIBRARY}")
++  endif()
++  # On MSVC the toolchain also depends on the debug-suffixed variants (see
++  # XPTIFW_LIBS below), so create imported targets for those too.
++  if(MSVC)
++    if(NOT TARGET xptid)
++      find_library(XPTID_LIBRARY NAMES xptid REQUIRED)
++      add_library(xptid UNKNOWN IMPORTED GLOBAL)
++      set_target_properties(xptid PROPERTIES IMPORTED_LOCATION "${XPTID_LIBRARY}")
++    endif()
++    if(NOT TARGET xptifwd)
++      find_library(XPTIFWD_LIBRARY NAMES xptifwd REQUIRED)
++      add_library(xptifwd UNKNOWN IMPORTED GLOBAL)
++      set_target_properties(xptifwd PROPERTIES IMPORTED_LOCATION "${XPTIFWD_LIBRARY}")
++    endif()
++  endif()
++endif()
++
++# sycl-jit is loaded at runtime via dlopen; a dummy target lets
++# add_dependencies() succeed without requiring an in-tree build.
++if(NOT LLVM_MAIN_SRC_DIR AND SYCL_ENABLE_EXTENSION_JIT AND NOT TARGET sycl-jit)
++  add_custom_target(sycl-jit)
++  add_custom_target(check-sycl-jit)
++endif()
++
++# llvm-spirv and spirv-to-ir-wrapper are installed separately in standalone
++# builds; dummy targets prevent cmake errors in DEPENDS lists.
++if(NOT LLVM_MAIN_SRC_DIR AND NOT TARGET llvm-spirv)
++  add_custom_target(llvm-spirv)
++endif()
++if(NOT LLVM_MAIN_SRC_DIR AND NOT TARGET spirv-to-ir-wrapper)
++  add_custom_target(spirv-to-ir-wrapper)
++endif()
++
+ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+ include(AddSYCLExecutable)
+ include(AddSYCL)
+@@ -142,24 +202,43 @@ endif()
+ set(CLANG_VERSION "${CLANG_VERSION_MAJOR}.${CLANG_VERSION_MINOR}.${CLANG_VERSION_PATCHLEVEL}")
+ 
+ set(SYCL_INCLUDE_DIR "include")
+-set(SYCL_INCLUDE_BUILD_DIR ${LLVM_BINARY_DIR}/${SYCL_INCLUDE_DIR})
+-
+-add_llvm_external_project(opencl)
+-list(FIND LLVM_ENABLE_PROJECTS opencl OPENCL_PROJ_FOUND)
+-if(OPENCL_PROJ_FOUND EQUAL -1)
+-  message(FATAL_ERROR "opencl external project required but not found.")
++if(LLVM_MAIN_SRC_DIR)
++  set(SYCL_INCLUDE_BUILD_DIR ${LLVM_BINARY_DIR}/${SYCL_INCLUDE_DIR})
++else()
++  set(SYCL_INCLUDE_BUILD_DIR ${CMAKE_BINARY_DIR}/${SYCL_INCLUDE_DIR})
++  include_directories(${SYCL_INCLUDE_BUILD_DIR})
+ endif()
+ 
+-if(NOT OpenCL_FOUND)
+-  # Copy OpenCL Headers into sycl headers build directory
+-  # Compiler does automatic lookup bin/../include based on clang binary location,
+-  # e.g. when run LIT tests
+-  file(COPY ${OpenCL_INCLUDE_DIR}/CL DESTINATION ${SYCL_INCLUDE_BUILD_DIR})
++if(LLVM_MAIN_SRC_DIR)
++  add_llvm_external_project(opencl)
++  list(FIND LLVM_ENABLE_PROJECTS opencl OPENCL_PROJ_FOUND)
++  if(OPENCL_PROJ_FOUND EQUAL -1)
++    message(FATAL_ERROR "opencl external project required but not found.")
++  endif()
++
++  if(NOT OpenCL_FOUND)
++    # Copy OpenCL Headers into sycl headers build directory
++    # Compiler does automatic lookup bin/../include based on clang binary location,
++    # e.g. when run LIT tests
++    file(COPY ${OpenCL_INCLUDE_DIR}/CL DESTINATION ${SYCL_INCLUDE_BUILD_DIR})
+ 
+-  # Include OpenCL Headers into final bundle.
+-  install(DIRECTORY ${OpenCL_INCLUDE_DIR}/CL
+-          DESTINATION ${SYCL_INCLUDE_DIR}
+-          COMPONENT OpenCL-Headers)
++    # Include OpenCL Headers into final bundle.
++    install(DIRECTORY ${OpenCL_INCLUDE_DIR}/CL
++            DESTINATION ${SYCL_INCLUDE_DIR}
++            COMPONENT OpenCL-Headers)
++  endif()
++else()
++  find_package(OpenCL REQUIRED)
++  # The SYCL runtime and unit tests link a target named OpenCL-Headers. When
++  # the opencl backend is enabled, UR's FetchOpenCL.cmake (pulled in via
++  # BuildUnifiedRuntime above) defines it; otherwise wrap the system headers
++  # found above, mirroring the interface FetchOpenCL.cmake provides.
++  if(NOT TARGET OpenCL-Headers)
++    add_library(OpenCL-Headers INTERFACE IMPORTED GLOBAL)
++    set_target_properties(OpenCL-Headers PROPERTIES
++      INTERFACE_INCLUDE_DIRECTORIES "${OpenCL_INCLUDE_DIRS}"
++      INTERFACE_COMPILE_DEFINITIONS "CL_TARGET_OPENCL_VERSION=300;CL_USE_DEPRECATED_OPENCL_1_2_APIS=1")
++  endif()
+ endif()
+ 
+ # Option for enabling building the SYCL major release preview library.
+@@ -182,6 +261,25 @@ if ("native_cpu" IN_LIST SYCL_ENABLE_BACKENDS)
+   set(SYCL_BUILD_BACKEND_NATIVE_CPU ON)
+ endif()
+ 
++if(NOT LLVM_MAIN_SRC_DIR)
++  # LLVMConfig.cmake does not export LLVM_HAS_<arch>_TARGET, so derive them
++  # from LLVM_TARGETS_TO_BUILD unless they were passed in explicitly.
++  if(NOT DEFINED LLVM_HAS_NVPTX_TARGET)
++    if("NVPTX" IN_LIST LLVM_TARGETS_TO_BUILD)
++      set(LLVM_HAS_NVPTX_TARGET ON)
++    else()
++      set(LLVM_HAS_NVPTX_TARGET OFF)
++    endif()
++  endif()
++  if(NOT DEFINED LLVM_HAS_AMDGPU_TARGET)
++    if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
++      set(LLVM_HAS_AMDGPU_TARGET ON)
++    else()
++      set(LLVM_HAS_AMDGPU_TARGET OFF)
++    endif()
++  endif()
++endif()
++
+ # Set backend macros based on whether we can compile kernels for the target
+ # rather than if we're building the runtime adapter.
+ set(SYCL_EXT_ONEAPI_BACKEND_CUDA ${LLVM_HAS_NVPTX_TARGET})
+@@ -384,28 +482,34 @@ if (SYCL_ENABLE_XPTI_TRACING)
+ endif()
+ 
+ # SYCL toolchain builds all components: compiler, libraries, headers, etc.
+-add_custom_target(sycl-compiler
+-  DEPENDS append-file
+-          clang
+-          dpllvm
+-          clang-offload-wrapper
+-          clang-offload-bundler
+-          clang-offload-deps
+-          clang-offload-extract
+-          llvm-offload-binary
+-          clang-linker-wrapper
+-          file-table-tform
+-          llc
+-          llvm-ar
+-          llvm-config
+-          llvm-foreach
+-          llvm-spirv
+-          llvm-link
+-          llvm-objcopy
+-          spirv-to-ir-wrapper
+-          sycl-post-link
+-          opencl-aot
+-)
++# In standalone builds the compiler tools are pre-installed; sycl-compiler
++# is a no-op target used only so sycl-toolchain has something to depend on.
++if(LLVM_MAIN_SRC_DIR)
++  set(_sycl_compiler_tool_deps
++    append-file
++    clang
++    dpllvm
++    clang-offload-wrapper
++    clang-offload-bundler
++    clang-offload-deps
++    clang-offload-extract
++    llvm-offload-binary
++    clang-linker-wrapper
++    file-table-tform
++    llc
++    llvm-ar
++    llvm-config
++    llvm-foreach
++    llvm-spirv
++    llvm-link
++    llvm-objcopy
++    spirv-to-ir-wrapper
++    sycl-post-link
++    opencl-aot)
++else()
++  set(_sycl_compiler_tool_deps)
++endif()
++add_custom_target(sycl-compiler DEPENDS ${_sycl_compiler_tool_deps})
+ 
+ add_custom_target( sycl-runtime-libraries
+   DEPENDS ${SYCL_RT_LIBS}
+@@ -469,40 +573,57 @@ endif()
+ get_property(SYCL_TOOLCHAIN_DEPS GLOBAL PROPERTY SYCL_TOOLCHAIN_INSTALL_COMPONENTS)
+ # Package deploy support
+ # Listed here are component names contributing the package
+-set( SYCL_TOOLCHAIN_DEPLOY_COMPONENTS
+-     append-file
+-     clang
+-     dpllvm
+-     clang-offload-wrapper
+-     clang-offload-bundler
+-     clang-offload-deps
+-     clang-offload-extract
+-     llvm-offload-binary
+-     clang-linker-wrapper
+-     file-table-tform
+-     llc
+-     llvm-ar
+-     llvm-config
+-     llvm-foreach
+-     llvm-spirv
+-     llvm-link
+-     llvm-objcopy
+-     spirv-to-ir-wrapper
+-     sycl-post-link
+-     sycl-ls
+-     syclbin-dump
+-     clang-resource-headers
+-     OpenCL-Headers
+-     opencl-aot
+-     sycl-headers
+-     sycl-headers-extras
+-     sycl
+-     libsycldevice
+-     unified-memory-framework
+-     unified-runtime-loader
+-     ${XPTIFW_LIBS}
+-     ${SYCL_TOOLCHAIN_DEPS}
+-)
++if(LLVM_MAIN_SRC_DIR)
++  set( SYCL_TOOLCHAIN_DEPLOY_COMPONENTS
++       append-file
++       clang
++       dpllvm
++       clang-offload-wrapper
++       clang-offload-bundler
++       clang-offload-deps
++       clang-offload-extract
++       llvm-offload-binary
++       clang-linker-wrapper
++       file-table-tform
++       llc
++       llvm-ar
++       llvm-config
++       llvm-foreach
++       llvm-spirv
++       llvm-link
++       llvm-objcopy
++       spirv-to-ir-wrapper
++       sycl-post-link
++       sycl-ls
++       syclbin-dump
++       clang-resource-headers
++       OpenCL-Headers
++       opencl-aot
++       sycl-headers
++       sycl-headers-extras
++       sycl
++       libsycldevice
++       unified-memory-framework
++       unified-runtime-loader
++       ${XPTIFW_LIBS}
++       ${SYCL_TOOLCHAIN_DEPS}
++  )
++else()
++  # Standalone builds only deploy components that have install rules in this
++  # build tree; compiler tools, resource headers and device libraries are
++  # provided by the pre-built toolchain.
++  set( SYCL_TOOLCHAIN_DEPLOY_COMPONENTS
++       sycl-ls
++       syclbin-dump
++       sycl-headers
++       sycl-headers-extras
++       sycl
++       unified-memory-framework
++       unified-runtime-loader
++       ${XPTIFW_LIBS}
++       ${SYCL_TOOLCHAIN_DEPS}
++  )
++endif()
+ 
+ if("cuda" IN_LIST SYCL_ENABLE_BACKENDS)
+   list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS clang-nvlink-wrapper)
+@@ -538,11 +659,13 @@ if("libclc" IN_LIST LLVM_ENABLE_PROJECTS)
+ endif()
+ 
+ if("cuda" IN_LIST SYCL_ENABLE_BACKENDS)
+-  # Ensure that libclc is enabled.
+-  list(FIND LLVM_ENABLE_PROJECTS libclc LIBCLC_FOUND)
+-  if( LIBCLC_FOUND EQUAL -1 )
+-    message(FATAL_ERROR
+-      "CUDA support requires adding \"libclc\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++  if(LLVM_MAIN_SRC_DIR)
++    # Ensure that libclc is enabled.
++    list(FIND LLVM_ENABLE_PROJECTS libclc LIBCLC_FOUND)
++    if( LIBCLC_FOUND EQUAL -1 )
++      message(FATAL_ERROR
++        "CUDA support requires adding \"libclc\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++    endif()
+   endif()
+ 
+   add_dependencies(sycl-toolchain ur_adapter_cuda)
+@@ -550,16 +673,20 @@ if("cuda" IN_LIST SYCL_ENABLE_BACKENDS)
+ endif()
+ 
+ if("hip" IN_LIST SYCL_ENABLE_BACKENDS)
+-  # Ensure that libclc is enabled.
+-  list(FIND LLVM_ENABLE_PROJECTS libclc LIBCLC_FOUND)
+-  if( LIBCLC_FOUND EQUAL -1 )
+-    message(FATAL_ERROR
+-      "HIP support requires adding \"libclc\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
+-  endif()
++  if(LLVM_MAIN_SRC_DIR)
++    # Ensure that libclc is enabled.
++    list(FIND LLVM_ENABLE_PROJECTS libclc LIBCLC_FOUND)
++    if( LIBCLC_FOUND EQUAL -1 )
++      message(FATAL_ERROR
++        "HIP support requires adding \"libclc\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++    endif()
+ 
+-  if(NOT TARGET lld AND "${SYCL_BUILD_PI_HIP_PLATFORM}" STREQUAL "AMD")
+-    message(FATAL_ERROR
+-      "HIP support requires adding \"lld\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++    if(NOT TARGET lld AND "${SYCL_BUILD_PI_HIP_PLATFORM}" STREQUAL "AMD")
++      message(FATAL_ERROR
++        "HIP support requires adding \"lld\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++    endif()
++  elseif("${SYCL_BUILD_PI_HIP_PLATFORM}" STREQUAL "AMD")
++    find_package(LLD REQUIRED)
+   endif()
+ 
+   add_dependencies(sycl-toolchain ur_adapter_hip)
+@@ -567,9 +694,13 @@ if("hip" IN_LIST SYCL_ENABLE_BACKENDS)
+ endif()
+ 
+ if("offload" IN_LIST SYCL_ENABLE_BACKENDS)
+-  if(NOT TARGET lld)
+-    message(FATAL_ERROR
+-      "Offload support requires adding \"lld\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++  if(LLVM_MAIN_SRC_DIR)
++    if(NOT TARGET lld)
++      message(FATAL_ERROR
++        "Offload support requires adding \"lld\" to the CMake argument \"LLVM_ENABLE_PROJECTS\"")
++    endif()
++  else()
++    find_package(LLD REQUIRED)
+   endif()
+   add_dependencies(sycl-toolchain ur_adapter_offload)
+   list(APPEND SYCL_TOOLCHAIN_DEPLOY_COMPONENTS ur_adapter_offload)
+@@ -605,8 +736,14 @@ add_custom_target(deploy-sycl-toolchain
+ 
+ # SYCL Runtime documentation
+ add_subdirectory(doc)
+-# SYCL End-to-End tests
+-add_subdirectory(test-e2e)
++# SYCL End-to-End tests.
++# They drive the just-built toolchain (they regex the DPC++ version out of
++# `$compiler --version` and shell out to its llvm-config), so they only make
++# sense in-tree. Configuring them standalone aborts with "Could not detect SYCL
++# compiler version" because the configured CXX compiler is the host one.
++if(LLVM_MAIN_SRC_DIR)
++  add_subdirectory(test-e2e)
++endif()
+ 
+ add_custom_target(install-sycl-test-utilities
+   COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target
+diff --git a/cmake/modules/BuildUnifiedRuntime.cmake b/cmake/modules/BuildUnifiedRuntime.cmake
+index 646ca364a10f..601c3e5d7eea 100644
+--- a/cmake/modules/BuildUnifiedRuntime.cmake
++++ b/cmake/modules/BuildUnifiedRuntime.cmake
+@@ -76,7 +76,13 @@ if(NOT IS_DIRECTORY "${UR_INTREE_SOURCE_DIR}")
+   message(FATAL_ERROR "unified-runtime folder not found at repo root")
+ endif()
+ 
+-set(UR_INTREE_BINARY_DIR ${LLVM_BINARY_DIR}/unified-runtime)
++if(LLVM_MAIN_SRC_DIR)
++  set(UR_INTREE_BINARY_DIR ${LLVM_BINARY_DIR}/unified-runtime)
++else()
++  # In standalone builds, LLVM_BINARY_DIR points at the installed LLVM tree
++  # (e.g. inside nix store), which is not writable. Use our own build dir.
++  set(UR_INTREE_BINARY_DIR ${CMAKE_BINARY_DIR}/unified-runtime)
++endif()
+ set(UNIFIED_RUNTIME_SOURCE_DIR
+   "${UR_INTREE_SOURCE_DIR}" CACHE PATH
+   "Path to Unified Runtime Headers" FORCE)
+diff --git a/doc/developer/StandaloneBuilds.md b/doc/developer/StandaloneBuilds.md
+new file mode 100644
+index 000000000000..59429142e332
+--- /dev/null
++++ b/doc/developer/StandaloneBuilds.md
+@@ -0,0 +1,64 @@
++# Standalone Builds of Individual Components
++
++Several Intel-owned components of this repository can be configured and
++built standalone, i.e. against an already-built and installed
++LLVM/DPC++ toolchain (via `find_package(LLVM)` / `-DLLVM_DIR=...`)
++instead of as part of a single monorepo configuration rooted at
++`llvm/`. This is primarily intended for downstream packagers who want
++to build and package components individually.
++
++Standalone mode is detected via `LLVM_MAIN_SRC_DIR`: when the variable
++is unset, the component configures itself standalone. Monorepo builds
++are unaffected by any of the standalone code paths.
++
++Tracking issue: [intel/llvm#21877](https://github.com/intel/llvm/issues/21877).
++
++## General prerequisites
++
++All components need an installed LLVM whose `LLVMConfig.cmake` is
++discoverable, e.g.:
++
++```
++cmake -S <component> -B build \
++  -DLLVM_DIR=<install-prefix>/lib/cmake/llvm \
++  ...
++```
++
++Components that compile device code additionally need the DPC++ tools
++(`clang`, `llvm-spirv`, `sycl-post-link`, ...) from the same install
++available in `LLVM_TOOLS_BINARY_DIR`.
++
++## Per-component configuration
++
++| Component | Source dir | Required cache variables (beyond `LLVM_DIR`) |
++|---|---|---|
++| xptifw | `xptifw/` | `xpti` must be findable as a CMake package (`find_package(xpti)`) |
++| libclc | `libclc/` | none; LLVM tools are resolved from `LLVM_TOOLS_BINARY_DIR` with PATH fallback |
++| libdevice | `libdevice/` | none; optionally `DPCPP_VERSION_MAJOR` (defaults to the in-tree version), `LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR` to override tool lookup. All required tools are validated at configure time. |
++| opencl-aot | `opencl/` | none |
++| spirv-to-ir-wrapper | `llvm/tools/spirv-to-ir-wrapper/` | `LLVM_SPIRV_INCLUDE_DIRS`, `LLVM_SPIRV_LIB` (prebuilt `libLLVMSPIRVLib`) |
++| sycl-jit | `sycl-jit/` | `Clang_DIR`, `LLVM_SPIRV_INCLUDE_DIRS`, `SYCL_JIT_RESOURCE_DIR` (pre-staged resource tree, see below); optional `SYCL_JIT_INCLUDE_TESTS` |
++| sycl | `sycl/` | `Clang_DIR`; OpenCL headers via `find_package(OpenCL)`; when `SYCL_ENABLE_XPTI_TRACING=ON`, prebuilt `xpti`/`xptifw` libraries discoverable via `find_library` |
++
++Component builds that depend on other components (e.g. `sycl` on
++`xptifw`) consume them as installed packages/libraries; build order
++follows the dependency order.
++
++## sycl-jit resources
++
++In the monorepo build, the JIT compiler's embedded resource tree is
++staged by installing the `sycl-headers`, `OpenCL-Headers`,
++`clang-resource-headers` and `libsycldevice` components (plus libclc's
++`libspirv-builtins` when enabled) into a private staging directory. In
++standalone builds this staging pipeline is unavailable; instead, stage
++the same component install trees manually (e.g. with
++`cmake --install ... --component <name> --prefix <dir>` from the
++component builds) and pass the directory as `SYCL_JIT_RESOURCE_DIR`.
++
++## Support expectations
++
++Standalone builds are validated by downstream packaging, not by this
++repository's pre-commit CI. They are supported on a best-effort basis:
++changes must keep monorepo builds byte-identical (which CI does
++enforce), but standalone configurations may occasionally need fixes
++between releases.
+diff --git a/doc/index.rst b/doc/index.rst
+index 92908772a9ef..858fba6b47cf 100644
+--- a/doc/index.rst
++++ b/doc/index.rst
+@@ -76,3 +76,4 @@ Developer Documentation
+    developer/ContributeToDPCPP
+    developer/KHRExtensions
+    developer/WorkingOnAReleaseBranch
++   developer/StandaloneBuilds

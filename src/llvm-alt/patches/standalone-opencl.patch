@@ -1,0 +1,47 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aa317994840e..e1565fb23776 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,16 @@
+ cmake_minimum_required(VERSION 3.20.0)
+ 
++if(NOT LLVM_MAIN_SRC_DIR)
++  project(opencl-aot C CXX)
++
++  find_package(LLVM REQUIRED CONFIG)
++  include(AddLLVM)
++
++  include_directories(${LLVM_INCLUDE_DIRS})
++  separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
++  add_definitions(${LLVM_DEFINITIONS_LIST})
++endif()
++
+ include(FetchContent)
+ 
+ # Suppress warnings related to dependencies
+diff --git a/opencl-aot/CMakeLists.txt b/opencl-aot/CMakeLists.txt
+index 9aa34cfabde1..8be76fbe11e6 100644
+--- a/opencl-aot/CMakeLists.txt
++++ b/opencl-aot/CMakeLists.txt
+@@ -10,7 +10,20 @@ file(GLOB TARGET_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+ 
+ set(OPENCL_AOT_PROJECT_NAME opencl-aot)
+ 
+-add_llvm_tool(${OPENCL_AOT_PROJECT_NAME} ${TARGET_SOURCES})
++if(LLVM_MAIN_SRC_DIR)
++  add_llvm_tool(${OPENCL_AOT_PROJECT_NAME} ${TARGET_SOURCES})
++else()
++  # In standalone builds the installed LLVM may already export an imported
++  # `opencl-aot` target (via LLVMExports.cmake), so add_llvm_tool() cannot be
++  # used. Build a plain executable and link the LLVM components explicitly.
++  add_executable(${OPENCL_AOT_PROJECT_NAME} ${TARGET_SOURCES})
++  if(LLVM_LINK_LLVM_DYLIB)
++    llvm_config(${OPENCL_AOT_PROJECT_NAME} USE_SHARED ${LLVM_LINK_COMPONENTS})
++  else()
++    llvm_config(${OPENCL_AOT_PROJECT_NAME} ${LLVM_LINK_COMPONENTS})
++  endif()
++  install(TARGETS ${OPENCL_AOT_PROJECT_NAME} RUNTIME DESTINATION bin)
++endif()
+ 
+ if (WIN32)
+   # 0x2000: exclude CWD from DLL loading path

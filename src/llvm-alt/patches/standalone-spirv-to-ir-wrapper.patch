@@ -1,0 +1,90 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9d3e94c99c7c..5ea401c87e95 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,14 +1,76 @@
+-set(LLVM_LINK_COMPONENTS
+-  BinaryFormat
+-  Core
+-  Support
+-  SPIRVLib
+-  )
++if(NOT LLVM_MAIN_SRC_DIR)
++  cmake_minimum_required(VERSION 3.20.0)
++  project(spirv-to-ir-wrapper C CXX)
+ 
+-include_directories(
+-  ${LLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR}/include
+-  )
++  find_package(LLVM REQUIRED CONFIG)
++
++  if(NOT LLVM_SPIRV_INCLUDE_DIRS OR NOT LLVM_SPIRV_LIB)
++    message(FATAL_ERROR
++      "LLVM_SPIRV_INCLUDE_DIRS and LLVM_SPIRV_LIB must be set for standalone builds")
++  endif()
++
++  list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})
++  include(AddLLVM)
++  include(HandleLLVMOptions)
++  include(LLVM-Config)
++
++  set(CMAKE_CXX_STANDARD 17)
++  set(CMAKE_CXX_STANDARD_REQUIRED ON)
++
++  # LLVM's exported targets do not carry INTERFACE_INCLUDE_DIRECTORIES or
++  # compile definitions; add them explicitly.
++  include_directories(${LLVM_INCLUDE_DIRS})
++  separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
++  add_definitions(${LLVM_DEFINITIONS_LIST})
++
++  # LLVMConfig does not export LLVM_BUILD_TOOLS or LLVM_TOOLS_INSTALL_DIR.
++  # Without the former, add_llvm_tool marks the target EXCLUDE_FROM_ALL and
++  # skips install; without the latter, install(TARGETS) gets an empty
++  # DESTINATION.
++  set(LLVM_BUILD_TOOLS ON)
++  if(NOT DEFINED LLVM_TOOLS_INSTALL_DIR)
++    set(LLVM_TOOLS_INSTALL_DIR "bin")
++  endif()
++
++  set(LLVM_LINK_COMPONENTS
++    BinaryFormat
++    Core
++    Support
++    )
++
++  include_directories(${LLVM_SPIRV_INCLUDE_DIRS})
++
++  # SPIRVLib is not an LLVM cmake component outside the monorepo. Wrap the
++  # prebuilt archive in an imported target that carries its LLVM dependencies
++  # so that a single-pass static linker can resolve LLVMSPIRVLib's references
++  # to LLVM symbols regardless of link order.
++  llvm_map_components_to_libnames(llvm_spirv_lib_deps
++    BinaryFormat
++    Core
++    Support
++    )
++  add_library(LLVMSPIRVLib_external STATIC IMPORTED)
++  set_target_properties(LLVMSPIRVLib_external PROPERTIES
++    IMPORTED_LOCATION "${LLVM_SPIRV_LIB}"
++    INTERFACE_LINK_LIBRARIES "${llvm_spirv_lib_deps}"
++    )
++else()
++  set(LLVM_LINK_COMPONENTS
++    BinaryFormat
++    Core
++    Support
++    SPIRVLib
++    )
++
++  include_directories(
++    ${LLVM_EXTERNAL_LLVM_SPIRV_SOURCE_DIR}/include
++    )
++endif()
+ 
+ add_llvm_tool(spirv-to-ir-wrapper
+   spirv-to-ir-wrapper.cpp
+   )
++
++if(NOT LLVM_MAIN_SRC_DIR)
++  target_link_libraries(spirv-to-ir-wrapper PRIVATE LLVMSPIRVLib_external)
++endif()

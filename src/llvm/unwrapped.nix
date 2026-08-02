@@ -6,47 +6,42 @@
   llvmMajorVersion,
   vc-intrinsics-src,
   make-unified-runtime,
-  buildStdenv,
   # Regular dependencies
   lib,
   stdenv,
-  fetchFromGitHub,
   cmake,
   ninja,
   python3,
   pkg-config,
   zstd,
-  pkgsStatic,
   hwloc,
   emhash,
   level-zero,
   opencl-headers,
   libxml2,
   libedit,
-  llvmPackages,
   llvmPackages_22,
-  callPackage,
   parallel-hashmap,
   spirv-headers,
   spirv-tools,
   zlib,
   wrapCC,
   graphviz-nox,
-  rocmPackages ? {},
-  rocmGpuTargets ?
-    lib.optionalString (rocmPackages ? clr.gpuTargets) (
-      builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets
-    ),
-  cudaPackages ? {},
-  cudaSupport ? false,
-  rocmSupport ? false,
+  rocmPackages ? { },
+  rocmGpuTargets ? lib.optionalString (rocmPackages ? clr.gpuTargets) (
+    builtins.concatStringsSep ";" rocmPackages.clr.gpuTargets
+  ),
+  config,
+  cudaSupport ? config.cudaSupport,
+  rocmSupport ? config.rocmSupport,
   # TODO: Should there be a flag like config.levelZeroSupport?
   # NOTE: Level Zero does not always fail gracefully, so when not explicitly set by the user,
   #       and other acceleration is already selected, disable it by default.
   levelZeroSupport ? !(cudaSupport || rocmSupport),
   nativeCpuSupport ? true,
   enableManpages ? true,
-}: let
+}:
+let
   # See the postPatch phase for details on why this is used
   ccWrapperStub = wrapCC (
     stdenv.mkDerivation {
@@ -62,7 +57,18 @@
         cp $out/bin/clang-${llvmMajorVersion} $out/bin/clang
         cp $out/bin/clang-${llvmMajorVersion} $out/bin/clang++
       '';
-      passthru.isClang = true;
+      passthru = {
+        isClang = true;
+        langC = true;
+        langCC = true;
+
+        # cc-wrapper adds `-nostdlibinc` to every Linux clang, which makes the SYCL driver
+        # skip its `stl_wrappers` include dir, caysubg libdevice compiles then fail with
+        # `'__spirv_BuiltIn...' undeclared`. `isROCm` is cc-wrapper's only opt-out
+        # from that flag and is read nowhere else.
+        # The name is a poor fit, but it does exactly what we want.
+        isROCm = true;
+      };
     }
   );
 
@@ -82,287 +88,296 @@
       rocmSupport
       rocmGpuTargets
       nativeCpuSupport
-      rocmPackages
-      cudaPackages
       ;
   };
 in
-  # Tip: This build plays nice with ccacheStdenv.
-  #      Use useCcache = true in package.nix to make debugging less tedious.
-  buildStdenv.mkDerivation (finalAttrs: {
-    pname = "intel-llvm";
+# Tip: This build plays nice with ccacheStdenv.
+#      Replace stdenv here to make debugging less tedious.
+stdenv.mkDerivation (finalAttrs: {
+  pname = "intel-llvm";
 
-    inherit src version commitDate;
+  inherit src version commitDate;
 
-    outputs = [
-      "out"
-      "lib"
-      "dev"
-      "python"
-    ];
+  outputs = [
+    "out"
+    "lib"
+    "dev"
+    "python"
+    # Not adding (conditionally) a "man" output here to avoid complexity in the
+    # wrapper, that is not worth it for a few kb.
+  ];
 
-    strictDeps = true;
-    __structuredAttrs = true;
+  strictDeps = true;
+  __structuredAttrs = true;
 
-    nativeBuildInputs =
-      [
-        cmake
-        ninja
-        python3
-        llvmPackages.bintools # For lld
-        pkg-config
-        zlib
-      ]
-      ++ lib.optionals enableManpages [
-        python3.pkgs.sphinx
-        python3.pkgs.myst-parser
-        graphviz-nox
-      ];
+  nativeBuildInputs = [
+    cmake
+    ninja
+    python3
+    llvmPackages_22.bintools # For lld
+    pkg-config
+    zlib
+  ]
+  ++ lib.optionals enableManpages [
+    python3.pkgs.sphinx
+    python3.pkgs.myst-parser
+    graphviz-nox
+  ];
 
-    buildInputs =
-      [
-        spirv-tools
-        libxml2
-        hwloc
-        emhash
-        parallel-hashmap
-        (zstd.override {static = true;})
-      ]
-      ++ unified-runtime.buildInputs;
+  buildInputs = [
+    spirv-tools
+    libxml2
+    hwloc
+    emhash
+    parallel-hashmap
+    # Static ZSTD is required by sycl, see sycl/source/CMakeLists.txt:163
+    # Intels CMake/build system also enabled `LLVM_USE_STATIC_ZSTD` by default,
+    # so at no point does it link to a non-static ZSTD library.
+    # This may be related to the fork not supporting building shared libraries;
+    #  https://github.com/intel/llvm/issues/19060
+    (zstd.override { static = true; })
+  ]
+  ++ unified-runtime.buildInputs;
 
-    propagatedBuildInputs = [
-      zlib
-      libedit
-      opencl-headers
-    ];
+  propagatedBuildInputs = [
+    zlib
+    libedit
+    opencl-headers
+  ];
 
-    cmakeBuildType = "Release";
-    # separateDebugInfo = true;
-    stripDebugFlags = ["--strip-unneeded"];
+  cmakeBuildType = "Release";
+  # This is to shave a little bit of size off of the final NAR.
+  # Saves about 0.5GiB
+  # Note that the sum of all outputs needs to stay under 4GiB to be cached by Hydra.
+  # To check:
+  #  nix path-info --json --json-format 2 .#intel-llvm.unwrapped{,.lib,.dev,.python} | jq '[.. | .narSize? // empty] | add'
+  stripDebugFlags = [ "--strip-unneeded" ];
 
-    patches = [
-      # Fix paths so the output can be split properly
-      ./gnu-install-dirs.patch
-      # sycl-jit bundles several files, among which are CMake files.
-      # The CMake files are bundled, yet not actually used.
-      # As the CMake files in question contain absolute install paths,
-      # they cause cycles in the outputs and break the build,
-      # so we simply exclude them.
-      ./sycl-jit-exclude-cmake-files.patch
-      # Clang checks CUDA_PATH env var only on Windows; package managers like
-      # NixOS set it on Linux too. Teach CudaInstallationDetector to look there.
-      ./cuda-path-env-linux.patch
-    ];
+  patches = [
+    # Fix paths so the output can be split properly
+    ./gnu-install-dirs.patch
+    # sycl-jit bundles several files, among which are CMake files.
+    # The CMake files are bundled, yet not actually used.
+    # As the CMake files in question contain absolute install paths,
+    # they cause cycles in the outputs and break the build,
+    # so we simply exclude them.
+    ./sycl-jit-exclude-cmake-files.patch
+    # Clang checks CUDA_PATH env var only on Windows; package managers like
+    # NixOS set it on Linux too. Teach CudaInstallationDetector to look there.
+    ./cuda-path-env-linux.patch
+    # Linux 7.x dropped <linux/scc.h>, which v7.0.0's compiler-rt still
+    # includes. Backport of the upstream removal; drop once the pin moves.
+    ./compiler-rt-drop-linux-scc.patch
+  ];
 
-    postPatch = ''
-      # Parts of libdevice are built using the freshly-built compiler.
-      # As it tries to link to system libraries, we need to wrap it with the
-      # usual nix cc-wrapper.
-      # Since the compiler to be wrapped is not available at this point,
-      # we use a stub that points to where it will be later on
-      # in `$NIX_BUILD_TOP/source/build/bin/clang-${llvmMajorVersion}`
-      substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
-        --replace-fail "\''${clang_exe}" "${ccWrapperStub}/bin/clang++"
+  postPatch = ''
+    # Parts of libdevice are built using the freshly-built compiler.
+    # As it tries to link to system libraries, we need to wrap it with the
+    # usual nix cc-wrapper.
+    # Since the compiler to be wrapped is not available at this point,
+    # we use a stub that points to where it will be later on
+    # in `$NIX_BUILD_TOP/source/build/bin/clang-${llvmMajorVersion}`
+    substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
+      --replace-fail "\''${clang_exe}" "${ccWrapperStub}/bin/clang++"
 
-      # The new Intel LLVM clang's addSYCLIncludeArgs early-exits when -nostdinc is present
-      # (which our nix cc-wrapper adds). This prevents stl_wrappers from being added to the
-      # include path for nativecpu_utils.bc compilation. Without stl_wrappers, <cassert>
-      # (included transitively via sycl/vector.hpp → common.hpp) resolves to the real C++
-      # cassert instead of the SYCL wrapper. The SYCL wrapper (stl_wrappers/cassert) is what
-      # includes spirv_vars.hpp, which declares __spirv_BuiltIn* functions needed in this file.
-      # Fix: explicitly add stl_wrappers to the nativecpu_utils.bc include search path.
-      substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
-        --replace-fail \
-          "-I \''${PROJECT_BINARY_DIR}/include -I \''${NATIVE_CPU_DIR}" \
-          "-I \''${PROJECT_BINARY_DIR}/include/sycl/stl_wrappers -I \''${PROJECT_BINARY_DIR}/include -I \''${NATIVE_CPU_DIR}"
+    # When running without this, their CMake code copies files from the Nix store.
+    # As the Nix store is read-only and COPY copies permissions by default,
+    # this will lead to the copied files also being read-only.
+    # As CMake at a later point wants to write into copied folders, this causes
+    # the build to fail with a (rather cryptic) permission error.
+    # By setting NO_SOURCE_PERMISSIONS we side-step this issue.
+    # Note in case of future build failures: if there are executables in any of the copied folders,
+    # we may need to add special handling to set the executable permissions.
+    # See also: https://github.com/intel/llvm/issues/19635#issuecomment-3134830708
+    sed -i '/file(COPY / { /NO_SOURCE_PERMISSIONS/! s/)\s*$/ NO_SOURCE_PERMISSIONS)/ }' \
+      unified-runtime/cmake/FetchLevelZero.cmake \
+      sycl/CMakeLists.txt \
+      sycl/cmake/modules/FetchEmhash.cmake
+  ''
+  # v7.0.0 half-applied an upstream rename of libclc's AMD target. Without this patch,
+  # The compiler builds and links fully, but the final compiler will lack the device libraries
+  # needed for compilating to AMD.
+  # Build `pkgsRocm.intel-llvm.tests.sycl-compile-amdgcn-amd-amdhsa` to check; it fails without this patch.
+  # TODO: It's likely that we can drop this on the next update.
+  + lib.optionalString rocmSupport ''
+    substituteInPlace libclc/CMakeLists.txt \
+      --replace-fail $'  amdgcn-amd-amdhsa\n' $'  amdgcn-amd-amdhsa\n  amdgcn--amdhsa\n' \
+      --replace-fail 'set( amdgcn-amd-amdhsa_devices none )' \
+        $'set( amdgcn-amd-amdhsa_devices none )\nset( amdgcn--amdhsa_devices none )'
+  ''
+  # These libdevice compiles target sm_75 (since v7.0.0), which needs PTX >= 6.3.
+  # clang picks the PTX ISA from the CUDA version it detects, if it detects nothing it falls back to `+ptx42`.
+  # `-nocudalib` only skips linking libdevice.bc, not detection, so point --cuda-path
+  # at the toolkit to get a real version and a modern PTX ISA.
+  + lib.optionalString cudaSupport ''
+    substituteInPlace libdevice/cmake/modules/SYCLLibdevice.cmake \
+      --replace-fail '"--cuda-gpu-arch=sm_75" "-nocudalib"' \
+      '"--cuda-gpu-arch=sm_75" "-nocudalib" "--cuda-path=${unified-runtime.setupVars.CUDA_PATH}"'
+  '';
 
-      # When running without this, their CMake code copies files from the Nix store.
-      # As the Nix store is read-only and COPY copies permissions by default,
-      # this will lead to the copied files also being read-only.
-      # As CMake at a later point wants to write into copied folders, this causes
-      # the build to fail with a (rather cryptic) permission error.
-      # By setting NO_SOURCE_PERMISSIONS we side-step this issue.
-      # Note in case of future build failures: if there are executables in any of the copied folders,
-      # we may need to add special handling to set the executable permissions.
-      # See also: https://github.com/intel/llvm/issues/19635#issuecomment-3134830708
-      sed -i '/file(COPY / { /NO_SOURCE_PERMISSIONS/! s/)\s*$/ NO_SOURCE_PERMISSIONS)/ }' \
-        unified-runtime/cmake/FetchLevelZero.cmake \
-        sycl/CMakeLists.txt \
-        sycl/cmake/modules/FetchEmhash.cmake
+  preConfigure = ''
+    flags=$(python buildbot/configure.py \
+        --print-cmake-flags \
+        -t Release \
+        --docs \
+        --cmake-gen Ninja \
+        ${lib.optionalString cudaSupport "--cuda"} \
+        ${lib.optionalString rocmSupport "--hip"} \
+        ${lib.optionalString nativeCpuSupport "--native_cpu"} \
+        ${lib.optionalString levelZeroSupport "--l0-headers ${lib.getInclude level-zero}/include/level_zero"} \
+        ${lib.optionalString levelZeroSupport "--l0-loader ${lib.getLib level-zero}/lib/libze_loader.so"} \
+    )
 
-      # `NO_CMAKE_PACKAGE_REGISTRY` prevents it from finding OpenCL, so we unset it
-      # Note that this cmake file is imported in various places, not just unified-runtime
-      # See also: https://github.com/intel/llvm/issues/19635#issuecomment-3247008981
-      substituteInPlace unified-runtime/cmake/FetchOpenCL.cmake \
-          --replace-fail "NO_CMAKE_PACKAGE_REGISTRY" ""
-    '';
+    # We eval because flags is separated as shell-escaped strings.
+    # We can't just split by space because it may contain escaped spaces,
+    # so we just let bash handle it.
+    # NOTE: We prepend, so that flags we set manually override what the build script does.
+    eval "prependToVar cmakeFlags $flags"
 
-    preConfigure = ''
-      flags=$(python buildbot/configure.py \
-          --print-cmake-flags \
-          -t Release \
-          --docs \
-          --cmake-gen Ninja \
-          ${lib.optionalString cudaSupport "--cuda"} \
-          ${lib.optionalString rocmSupport "--hip"} \
-          ${lib.optionalString nativeCpuSupport "--native_cpu"} \
-          ${lib.optionalString levelZeroSupport "--l0-headers ${lib.getInclude level-zero}/include/level_zero"} \
-          ${lib.optionalString levelZeroSupport "--l0-loader ${lib.getLib level-zero}/lib/libze_loader.so"} \
-      )
+    # Remove the install prefix flag
+    cmakeFlags=(''${cmakeFlags[@]/-DCMAKE_INSTALL_PREFIX=$NIX_BUILD_TOP\/source\/build\/install})
+  '';
 
-      # We eval because flags is separated as shell-escaped strings.
-      # We can't just split by space because it may contain escaped spaces,
-      # so we just let bash handle it.
-      # NOTE: We prepend, so that flags we set manually override what the build script does.
-      eval "prependToVar cmakeFlags $flags"
+  cmakeDir = "llvm";
 
-      # Remove the install prefix flag
-      cmakeFlags=(''${cmakeFlags[@]/-DCMAKE_INSTALL_PREFIX=$NIX_BUILD_TOP\/source\/build\/install})
-    '';
+  cmakeFlags = [
+    (lib.cmakeBool "LLVM_INSTALL_UTILS" true)
 
-    cmakeDir = "llvm";
+    (lib.cmakeBool "LLVM_BUILD_TESTS" false)
+    (lib.cmakeBool "LLVM_INCLUDE_TESTS" false)
+    (lib.cmakeBool "MLIR_INCLUDE_TESTS" false)
+    (lib.cmakeBool "SYCL_INCLUDE_TESTS" false)
 
-    cmakeFlags =
-      [
-        (lib.cmakeBool "LLVM_INSTALL_UTILS" true)
+    (lib.cmakeFeature "LLVM_ENABLE_ZSTD" "FORCE_ON")
+    (lib.cmakeFeature "LLVM_ENABLE_ZLIB" "FORCE_ON")
+    (lib.cmakeBool "LLVM_ENABLE_THREADS" true)
 
-        # Use lld as the linker. We use LLVM_USE_LINKER instead of LLVM_ENABLE_LLD
-        # because LLVM_ENABLE_LLD causes HandleLLVMOptions.cmake to auto-set
-        # LLVM_USE_LINKER=lld, which then conflicts when xptifw re-includes that file.
-        (lib.cmakeFeature "LLVM_USE_LINKER" "lld")
+    # Link with lld. Not buildbot's `--use-lld` (LLVM_ENABLE_LLD=ON): xpti/xptifw
+    # re-`include(HandleLLVMOptions)`, which derives LLVM_USE_LINKER from it and then
+    # aborts on "LLVM_ENABLE_LLD and LLVM_USE_LINKER can't be set at the same time".
+    (lib.cmakeFeature "LLVM_USE_LINKER" "lld")
 
-        (lib.cmakeBool "LLVM_BUILD_TESTS" false)
-        (lib.cmakeBool "LLVM_INCLUDE_TESTS" false)
-        (lib.cmakeBool "MLIR_INCLUDE_TESTS" false)
-        (lib.cmakeBool "SYCL_INCLUDE_TESTS" false)
+    # Intels LLVM fork does not support building shared libraries,
+    # see https://github.com/intel/llvm/issues/19060
+    (lib.cmakeBool "BUILD_SHARED_LIBS" false)
+    (lib.cmakeBool "LLVM_LINK_LLVM_DYLIB" false)
+    (lib.cmakeBool "LLVM_BUILD_LLVM_DYLIB" false)
 
-        (lib.cmakeFeature "LLVM_ENABLE_ZSTD" "FORCE_ON")
-        (lib.cmakeFeature "LLVM_ENABLE_ZLIB" "FORCE_ON")
-        (lib.cmakeBool "LLVM_ENABLE_THREADS" true)
+    # See https://github.com/intel/llvm/issues/19692
+    (lib.cmakeFeature "SYCL_COMPILER_VERSION" commitDate)
 
-        # Having these set to true breaks the build
-        # See https://github.com/intel/llvm/issues/19060
-        (lib.cmakeBool "BUILD_SHARED_LIBS" false)
-        (lib.cmakeBool "LLVM_LINK_LLVM_DYLIB" false)
-        (lib.cmakeBool "LLVM_BUILD_LLVM_DYLIB" false)
+    (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
+    (lib.cmakeBool "FETCHCONTENT_QUIET" false)
 
-        # See https://github.com/intel/llvm/issues/19692
-        (lib.cmakeFeature "SYCL_COMPILER_VERSION" commitDate)
+    (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${vc-intrinsics-src}")
+    (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
 
-        (lib.cmakeBool "FETCHCONTENT_FULLY_DISCONNECTED" true)
-        (lib.cmakeBool "FETCHCONTENT_QUIET" false)
+    # Ideally, we'd set this to "${placeholder "lib"}/lib/clang/${clangMajorVersion}",
+    # however this breaks the libdevice build.
+    # Instead, we just deal with it in postInstall
+    (lib.cmakeFeature "CLANG_RESOURCE_DIR" "../lib/clang/${llvmMajorVersion}")
+    (lib.cmakeFeature "LLVM_INSTALL_PACKAGE_DIR" "${placeholder "dev"}/lib/cmake/llvm")
 
-        (lib.cmakeFeature "FETCHCONTENT_SOURCE_DIR_VC-INTRINSICS" "${vc-intrinsics-src}")
-        (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
+    (lib.cmakeBool "LLVM_INCLUDE_DOCS" enableManpages)
+    (lib.cmakeBool "MLIR_INCLUDE_DOCS" enableManpages)
+    (lib.cmakeBool "LLVM_BUILD_DOCS" enableManpages)
+    (lib.cmakeBool "LLVM_ENABLE_SPHINX" enableManpages)
+    (lib.cmakeBool "SPHINX_OUTPUT_MAN" enableManpages)
 
-        # Ideally, we'd set this to "${placeholder "lib"}/lib/clang/${clangMajorVersion}",
-        # however this breaks the libdevice build.
-        # Instead, we just deal with it in postInstall
-        (lib.cmakeFeature "CLANG_RESOURCE_DIR" "../lib/clang/${llvmMajorVersion}")
-        (lib.cmakeFeature "LLVM_INSTALL_PACKAGE_DIR" "${placeholder "dev"}/lib/cmake/llvm")
+    # The buildbot script always enables level-zero no matter what.
+    # To allow disabling level-zero, we override its flag here,
+    # so it gets excluded when not enabled.
+    (lib.cmakeFeature "SYCL_ENABLE_BACKENDS" (
+      lib.strings.concatStringsSep ";" unified-runtime.backends
+    ))
+  ]
+  # NOTE: no LLVM_ENABLE_RUNTIMES=compiler-rt here. buildbot/configure.py already
+  # puts compiler-rt in LLVM_ENABLE_PROJECTS for every backend, and that in-tree
+  # build installs the builtins we need
+  # (lib/clang/${llvmMajorVersion}/lib/<triple>/libclang_rt.builtins.a, picked up
+  # via the triple symlink in postInstall). Adding it as a runtime as well makes
+  # cmake abort with duplicate "builtins" / "compiler-rt" / "install-compiler-rt"
+  # targets (CMP0002) since v7.0.0.
+  ++ unified-runtime.cmakeFlags;
 
-        (lib.cmakeBool "LLVM_INCLUDE_DOCS" enableManpages)
-        (lib.cmakeBool "MLIR_INCLUDE_DOCS" enableManpages)
-        (lib.cmakeBool "LLVM_BUILD_DOCS" enableManpages)
-        (lib.cmakeBool "LLVM_ENABLE_SPHINX" enableManpages)
-        (lib.cmakeBool "SPHINX_OUTPUT_MAN" enableManpages)
+  # This hardening option causes compilation errors when compiling for amdgcn, spirv and others
+  # Must be disabled during intel-llvm's own build (especially for libdevice)
+  hardeningDisable = [ "zerocallusedregs" ];
 
-        # The buildbot script always enables level-zero no matter what.
-        # To allow disabling level-zero, we override its flag here,
-        # so it gets excluded when not enabled.
-        (lib.cmakeFeature "SYCL_ENABLE_BACKENDS" (
-          lib.strings.concatStringsSep ";" unified-runtime.backends
-        ))
-      ]
-      ++ lib.optionals (cudaSupport || rocmSupport) [
-        (lib.cmakeFeature "LLVM_ENABLE_RUNTIMES" "compiler-rt")
-        # Only build for the host triple; without this compiler-rt also attempts
-        # i386 builtins which fail without 32-bit headers.
-        (lib.cmakeBool "COMPILER_RT_DEFAULT_TARGET_ONLY" true)
-        # The runtimes ExternalProject sub-build uses the freshly-built clang directly,
-        # which has no system headers as it isn't nix-wrapped.
-        # With these flags we override the compiler for those stages manually.
-        (lib.cmakeFeature "BUILTINS_CMAKE_ARGS" "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
-        (lib.cmakeFeature "RUNTIMES_CMAKE_ARGS" "-DCMAKE_C_COMPILER=${ccWrapperStub}/bin/clang;-DCMAKE_CXX_COMPILER=${ccWrapperStub}/bin/clang++")
-      ]
-      ++ unified-runtime.cmakeFlags;
+  # Without this it fails to link to hwloc, despite it being in the buildInputs.
+  NIX_LDFLAGS = "-lhwloc";
+
+  requiredSystemFeatures = [ "big-parallel" ];
+  enableParallelBuilding = true;
+
+  # The vast majority of tests work, however many of the more relevant
+  # ones struggle due to the lack of wrapping, causing it to
+  # not discover the standard library.
+  # If the wrapper is used instead however, other tests will fail
+  # that test CLI edge cases, and with the wrapper,
+  # those will differ compared to the vanilla build,
+  # making the tests fail.
+  doCheck = false;
+
+  # Copied from the regular LLVM derivation:
+  #  pkgs/development/compilers/llvm/common/llvm/default.nix
+  postInstall = ''
+    mkdir -p $python/share
+    mv $out/share/opt-viewer $python/share/opt-viewer
+
+    # If this stays in $out/bin, it'll create a circular reference
+    moveToOutput "bin/llvm-config*" "$dev"
+
+    substituteInPlace "$dev/lib/cmake/llvm/LLVMExports-${lib.toLower finalAttrs.finalPackage.cmakeBuildType}.cmake" \
+      --replace-fail "$out/bin/llvm-config" "$dev/bin/llvm-config"
+    substituteInPlace "$dev/lib/cmake/llvm/LLVMConfig.cmake" \
+      --replace-fail 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}")' 'set(LLVM_BINARY_DIR "'"$lib"'")'
+
+    # As explained above, this lands in $out, but we want it in $lib and we need to fix it by hand.
+    moveToOutput "lib/clang/${llvmMajorVersion}" "$lib"
+    substituteInPlace "$dev/include/clang/Config/config.h" \
+      --replace-fail "../lib/clang/${llvmMajorVersion}" "$lib/lib/clang/${llvmMajorVersion}"
+
+    # cmake detects the host triple as x86_64-pc-linux-gnu, but nix's cc-wrapper
+    # uses x86_64-unknown-linux-gnu. compiler-rt (including builtins) is installed
+    # under the cmake triple; symlink it so clang -rtlib=compiler-rt finds it.
+    if [ -d "$lib/lib/clang/${llvmMajorVersion}/lib/x86_64-pc-linux-gnu" ]; then
+      ln -s x86_64-pc-linux-gnu "$lib/lib/clang/${llvmMajorVersion}/lib/x86_64-unknown-linux-gnu"
+    fi
+  '';
+
+  passthru = {
+    isClang = true;
+    langC = true;
+    langCC = true;
+
+    inherit unified-runtime;
+
+    # This is for easily referencing version-compatible LLVM libraries
+    # and tools that aren't built in this derivation,
+    # as well as nix tooling, such as the stdenv.
+    baseLlvm = llvmPackages_22;
+
+    inherit llvmMajorVersion;
 
     # This hardening option causes compilation errors when compiling for amdgcn, spirv and others
-    # Must be disabled during intel-llvm's own build (especially for libdevice)
-    hardeningDisable = ["zerocallusedregs"];
+    hardeningUnsupportedFlags = [ "zerocallusedregs" ];
+  };
 
-    # Without this it fails to link to hwloc, despite it being in the buildInputs
-    NIX_LDFLAGS = "-lhwloc";
-
-    requiredSystemFeatures = ["big-parallel"];
-    enableParallelBuilding = true;
-
-    # The vast majority of tests work, however many of the more relevant
-    # ones struggle due to the lack of wrapping, causing it to
-    # not discover the standard library.
-    # If the wrapper is used instead however, other tests will fail
-    # that test CLI edge cases, and with the wrapper,
-    # those will differ compared to the vanilla build,
-    # making the tests fail.
-    doCheck = false;
-
-    # Copied from the regular LLVM derivation:
-    #  pkgs/development/compilers/llvm/common/llvm/default.nix
-    postInstall = ''
-      mkdir -p $python/share
-      mv $out/share/opt-viewer $python/share/opt-viewer
-
-      # If this stays in $out/bin, it'll create a circular reference
-      moveToOutput "bin/llvm-config*" "$dev"
-
-      substituteInPlace "$dev/lib/cmake/llvm/LLVMExports-${lib.toLower finalAttrs.finalPackage.cmakeBuildType}.cmake" \
-        --replace-fail "$out/bin/llvm-config" "$dev/bin/llvm-config"
-      substituteInPlace "$dev/lib/cmake/llvm/LLVMConfig.cmake" \
-        --replace-fail 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}")' 'set(LLVM_BINARY_DIR "'"$lib"'")'
-
-      # As explained above, this lands in $out, but we want it in $lib and we need to fix it by hand.
-      moveToOutput "lib/clang/${llvmMajorVersion}" "$lib"
-      substituteInPlace "$dev/include/clang/Config/config.h" \
-        --replace-fail "../lib/clang/${llvmMajorVersion}" "$lib/lib/clang/${llvmMajorVersion}"
-
-      # cmake detects the host triple as x86_64-pc-linux-gnu, but nix's cc-wrapper
-      # uses x86_64-unknown-linux-gnu. compiler-rt (including builtins) is installed
-      # under the cmake triple; symlink it so clang -rtlib=compiler-rt finds it.
-      if [ -d "$lib/lib/clang/${llvmMajorVersion}/lib/x86_64-pc-linux-gnu" ]; then
-        ln -s x86_64-pc-linux-gnu "$lib/lib/clang/${llvmMajorVersion}/lib/x86_64-unknown-linux-gnu"
-      fi
+  meta = {
+    description = "Intel LLVM-based compiler with SYCL support";
+    longDescription = ''
+      Intel's LLVM-based compiler toolchain with Data Parallel C++ (DPC++)
+      and SYCL support for heterogeneous computing across CPUs, GPUs, and FPGAs.
     '';
-
-    meta = {
-      description = "Intel LLVM-based compiler with SYCL support";
-      longDescription = ''
-        Intel's LLVM-based compiler toolchain with Data Parallel C++ (DPC++)
-        and SYCL support for heterogeneous computing across CPUs, GPUs, and FPGAs.
-      '';
-      homepage = "https://github.com/intel/llvm";
-      mainProgram = "clang";
-      license = with lib.licenses; [
-        ncsa
-        asl20
-        llvm-exception
-      ];
-      maintainers = with lib.maintainers; [blenderfreaky];
-      platforms = ["x86_64-linux"];
-    };
-
-    passthru = {
-      isClang = true;
-
-      inherit unified-runtime;
-
-      # This is for easily referencing version-compatible LLVM libraries
-      # and tools that aren't built in this derivation,
-      # as well as nix tooling, such as the stdenv.
-      baseLlvm = llvmPackages_22;
-
-      inherit llvmMajorVersion;
-
-      # This hardening option causes compilation errors when compiling for amdgcn, spirv and others
-      hardeningUnsupportedFlags = ["zerocallusedregs"];
-    };
-  })
+    homepage = "https://github.com/intel/llvm";
+    mainProgram = "clang";
+    license = with lib.licenses; [
+      ncsa
+      asl20
+      llvm-exception
+    ];
+    maintainers = with lib.maintainers; [ kilyanni ];
+    platforms = [ "x86_64-linux" ];
+  };
+})

@@ -39,8 +39,15 @@
   # This is a decent speedup over GNU ld
   useLld ? true,
 }: let
-  version = "unstable-2026-02-24";
-  date = "20260224";
+  version = "7.0.0";
+  # Commit date of the v7.0.0 tag. Some consumers check this to decide what
+  # features the compiler supports; keep it in sync with `version`.
+  date = "20260713";
+  # The mainline LLVM release this Intel version is based on, from
+  # cmake/Modules/LLVMVersion.cmake. Single source of truth: it feeds both the
+  # version string handed to nixpkgs' llvmPackages machinery and the
+  # BASE_LLVM_VERSION that out-of-tree components find_package() against.
+  llvmVersion = "22.1.0";
   deps = callPackage ./deps.nix {};
   vc-intrinsics-src = applyPatches {
     src = deps.vc-intrinsics;
@@ -62,30 +69,26 @@
     src = fetchFromGitHub {
       owner = "intel";
       repo = "llvm";
-      # tag = "v${version}";
-      rev = "186cbd82259adde987b3e614708c7a91401d7652";
-      hash = "sha256-0ySX7G2OE0WixbgO3/IlaQn6YYa8wCGjR1xq3ylbR/U=";
+      tag = "v${version}";
+      hash = "sha256-l4InHzR/W6Gihoxt9CjEREyB9LDIDQggskzFIPIS2bA=";
     };
 
+    # Monorepo-level patches only — per-component patches are applied in their
+    # own derivation so editing one doesn't invalidate the whole monorepo src.
+    # Regenerate via ./update-patches.fish if the packaging branches advance.
     patches = [
-      # Fix hardcoded install paths (CMAKE_INSTALL_LIBDIR, etc.)
+      # Fix hardcoded install paths (CMAKE_INSTALL_LIBDIR, etc.) across the
+      # whole monorepo. Touches many subdirs so it must apply at root level.
       ./patches/gnu-install-dirs.patch
-      # Prevent cyclic deps from bundled cmake files in sycl-jit
-      ./patches/sycl-jit-exclude-cmake-files.patch
       # Clang checks CUDA_PATH env var only on Windows; package managers like
       # NixOS set it on Linux too. Teach CudaInstallationDetector to look there.
       ../llvm/cuda-path-env-linux.patch
+      # Linux 7.x dropped <linux/scc.h>, which v7.0.0's compiler-rt still
+      # includes. Backport of the upstream removal; drop once the pin moves.
+      ../llvm/compiler-rt-drop-linux-scc.patch
     ];
   };
-  src = runCommand "intel-llvm-src-fixed-${version}" {} ''
-    cp -r ${srcOrig} $out
-    chmod -R u+w $out
-
-    # `NO_CMAKE_PACKAGE_REGISTRY` prevents it from finding OpenCL, so we unset it
-    # Note that this cmake file is imported in various places, not just unified-runtime
-    substituteInPlace $out/unified-runtime/cmake/FetchOpenCL.cmake \
-      --replace-fail "NO_CMAKE_PACKAGE_REGISTRY" ""
-  '';
+  src = srcOrig;
   llvmPackages = llvmPackages_22;
   hostTarget =
     {
@@ -101,6 +104,19 @@
   # As such, if be always build all three we save needing to build llvm thrice.
   targetsToBuild = "${hostTarget};SPIRV;AMDGPU;NVPTX";
 
+  # libdevice emits a set of device libraries per enabled LLVM target, and those
+  # compiles are backend-specific in a way llvm itself is not: the NVPTX ones
+  # need a CUDA toolkit for clang to pick a PTX ISA. Without one it falls back
+  # to +ptx42 and the backend rejects sm_75 ("Minimum required PTX version is
+  # 6.3"), so an l0- or rocm-only build cannot build them at all. Scope
+  # libdevice to the targets the backend actually uses; llvm keeps building all
+  # of them so it is still compiled once. Mirrors what buildbot/configure.py
+  # does for the monolithic build.
+  libdeviceTargets =
+    "${hostTarget};SPIRV"
+    + lib.optionalString rocmSupport ";AMDGPU"
+    + lib.optionalString cudaSupport ";NVPTX";
+
   stdenv =
     if useCcache
     then ccacheStdenv.override {stdenv = llvmPackages.stdenv;}
@@ -109,12 +125,16 @@ in
   (llvmPackages.override (_: {
     inherit stdenv;
 
-    version = "22.0.0-${srcOrig.rev}";
+    # We overlay llvmPackages_22 because that is the mainline release this tree
+    # is based on and its patches are written against it. nixpkgs' llvmPackages
+    # machinery wants a mainline-looking version string, so qualify it with our
+    # release tag.
+    version = "${llvmVersion}-${version}";
 
     officialRelease = null;
     gitRelease = {
-      rev = srcOrig.rev;
-      rev-version = "22.0.0-unstable-2026-02-24";
+      rev = "v${version}";
+      rev-version = "${llvmVersion}-${version}";
     };
 
     monorepoSrc = src;
@@ -171,11 +191,8 @@ in
           in {
             src = src';
 
-            # gnu-install-dirs is already applied at the monorepo level (srcOrig)
-            patches =
-              builtins.filter
-              (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
-              old.patches;
+            # Keep nixpkgs patches — our gnu-install-dirs branch is scoped to
+            # Intel-specific files only and doesn't cover AddLLVM.cmake etc.
 
             nativeBuildInputs =
               old.nativeBuildInputs
@@ -224,9 +241,16 @@ in
         );
       # Shared shell fragment that adds libclc to the clang resource-root.
       # Used in both the stage-2 clang definition and its override function.
+      #
+      # clang's SYCL driver looks up libspirv at
+      #   ${ResourceDir}/lib/${DeviceTriple}/libspirv.l64.signed_char.bc
+      # libclc installs at share/clc/${target}/ — symlink each into resource lib.
       libclcRsrcCmds = ''
         mkdir -p $rsrc/lib
         ln -s ${llvmFinal.libclc}/share/clc $rsrc/lib/libclc
+        for d in ${llvmFinal.libclc}/share/clc/*/; do
+          ln -s "$d" "$rsrc/lib/$(basename "$d")"
+        done
       '';
 
       # Shared shell fragment that adds libdevice's lib dir to cc-ldflags.
@@ -236,15 +260,10 @@ in
         echo " -L${llvmFinal.libdevice}/lib" >> $out/nix-support/cc-ldflags
       '';
     in {
-      # gnu-install-dirs is pre-applied at monorepo level, so filter it out here
-      lld = llvmPrev.lld.overrideAttrs (old: {
-        patches =
-          builtins.filter
-          (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
-          old.patches;
-      });
+      # Keep nixpkgs lld gnu-install-dirs patch (covers AddLLD.cmake).
+      # Our Intel-scoped gnu-install-dirs doesn't touch lld.
 
-      # gnu-install-dirs is pre-applied at monorepo level, so filter it out here
+      # Keep nixpkgs tblgen patches.
       tblgen =
         (llvmPrev.tblgen.override {
           clangPatches = [];
@@ -262,6 +281,20 @@ in
       # SYCL cross-compiles to SPIR-V which doesn't support zerocallusedregs;
       # wrapCCWith reads hardeningUnsupportedFlagsByTargetPlatform from cc.passthru.
       clang-unwrapped = llvmPrev.clang-unwrapped.overrideAttrs (old: {
+        # PRE_RELEASE / DPCPP_VERSION_* are normally set by Intel's
+        # cmake/Modules/DPCPPVersion.cmake, which is only included from
+        # llvm/CMakeLists.txt. Standalone clang doesn't pick it up, so
+        # Version.inc ends up with empty @PRE_RELEASE@ and Version.cpp fails
+        # to compile. Pass the defaults explicitly.
+        cmakeFlags =
+          (old.cmakeFlags or [])
+          ++ [
+            (lib.cmakeFeature "PRE_RELEASE" "1")
+            (lib.cmakeFeature "DPCPP_VERSION_MAJOR" "7")
+            (lib.cmakeFeature "DPCPP_VERSION_MINOR" "1")
+            (lib.cmakeFeature "DPCPP_VERSION_PATCH" "0")
+          ];
+
         passthru =
           old.passthru
           // {
@@ -351,7 +384,10 @@ in
             old.passthru
             // {
               inherit (llvmFinal) stdenv;
-              tests = callPackage ../llvm/tests.nix {inherit (llvmFinal) stdenv;};
+              tests = callPackage ../llvm/tests.nix {
+                inherit (llvmFinal) stdenv;
+                inherit (unified-runtime') backends;
+              };
             };
         });
 
@@ -384,7 +420,7 @@ in
         '';
 
         patches = [
-          ./patches/opencl.patch
+          ./patches/standalone-opencl.patch
         ];
 
         sourceRoot = "${finalAttrs.src.name}/opencl";
@@ -430,27 +466,59 @@ in
             ];
 
           cmakeFlags = [
-            # Otherwise it'll misdetect the unwrapped just-built compiler as the compiler to use,
-            # and configure will fail to compile a basic test program with it.
+            # Use the wrapped clang so C/CXX language tests pass (clang-only on
+            # PATH would be picked up but can't link a basic test program — no
+            # glibc/crt). The wrapper injects -fzero-call-used-regs which spirv64
+            # doesn't support; counteract that with hardeningDisable below.
             (lib.cmakeFeature "CMAKE_C_COMPILER" "${stdenv.cc}/bin/clang")
+            # CLC compilation needs Intel's clang because the libclc CMakeLists
+            # passes Intel-specific flags like --amdgpu-oclc-reflect-enable=false.
+            # The outer stdenv.cc wraps nixpkgs LLVM (different rev). Intel's
+            # unwrapped clang is fine here — CLC compiles to bitcode, no sysroot
+            # needed.
+            (lib.cmakeFeature "CMAKE_CLC_COMPILER" "${llvmFinal.clang.cc}/bin/clang")
             (lib.cmakeFeature "LLVM_EXTERNAL_LIT" "${lit}/bin/lit")
 
             "-DLLVM_BUILD_UTILS=ON"
             "-DLLVM_INSTALL_UTILS=ON"
 
             "-DLIBCLC_GENERATE_REMANGLED_VARIANTS=ON"
-            (lib.cmakeFeature "LIBCLC_TARGETS_TO_BUILD" (lib.strings.concatStringsSep ";" ((lib.optional cudaSupport "nvptx64-nvidia-cuda") ++ (lib.optional rocmSupport "amdgcn-amd-amdhsa"))))
-            (lib.cmakeBool "LIBCLC_NATIVECPU_HOST_TARGET" nativeCpuSupport)
+            # libclc now builds ONE target per cmake invocation (upstream commit
+            # e7164d42243b overhauled the build). Pick the device triple based
+            # on the active backend.
+            (lib.cmakeFeature "LIBCLC_TARGET"
+              (if rocmSupport then "amdgcn--amdhsa" # not -amd-, see postPatch
+               else if cudaSupport then "nvptx64-nvidia-cuda"
+               else if nativeCpuSupport then "native_cpu"
+               else "spirv64-unknown-unknown"))
           ];
 
-          # Drop all nixpkgs patches (gnu-install-dirs is pre-applied at monorepo level,
-          # and the rest are replaced by our custom patches)
+          # Drop all nixpkgs patches in favor of our standalone build support.
           patches = [
-            ./patches/libclc-use-default-paths.patch
-            ./patches/libclc-remangler.patch
-            ./patches/libclc-find-clang.patch
-            ./patches/libclc-standalone-output-dir.patch
+            ./patches/standalone-libclc.patch
           ];
+
+          # v7.0.0 half-applied an upstream rename of libclc's AMD target: the
+          # build spells it amdgcn--amdhsa, but the remangler names its output
+          # after the canonical amdgcn-amd-amdhsa triple, which is what clang's
+          # SYCL driver then looks for
+          # (remangled-l64-signed_char.libspirv-amdgcn-amd-amdhsa.bc).
+          # Building the amdgcn-amd-amdhsa spelling emits no remangled variants
+          # at all, so register the other spelling and select it above.
+          # src/llvm/unwrapped.nix carries the same workaround for the
+          # monolithic build; drop both together on the next version bump.
+          postPatch = lib.optionalString rocmSupport ''
+            substituteInPlace CMakeLists.txt \
+              --replace-fail $'  amdgcn-amd-amdhsa\n' $'  amdgcn-amd-amdhsa\n  amdgcn--amdhsa\n' \
+              --replace-fail 'set( amdgcn-amd-amdhsa_devices none )' \
+                $'set( amdgcn-amd-amdhsa_devices none )\nset( amdgcn--amdhsa_devices none )'
+          '';
+
+          # CLC compiles to spirv64 — same workaround as libdevice. The outer
+          # ccache stdenv wraps nixpkgs' (not our) clang-unwrapped, so its
+          # hardeningUnsupportedFlagsByTargetPlatform doesn't include
+          # zerocallusedregs by default.
+          hardeningDisable = ["zerocallusedregs"];
 
           # prepare_builtins was removed upstream; nixpkgs' postInstall still tries to install it
           postInstall = "";
@@ -487,6 +555,11 @@ in
           (lib.cmakeBool "LLVM_SPIRV_INCLUDE_TESTS" false)
           (lib.cmakeBool "LLVM_SPIRV_ENABLE_LIBSPIRV_DIS" true)
           (lib.cmakeFeature "LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR" "${spirv-headers.src}")
+          # llvm-spirv defaults BASE_LLVM_VERSION to 22.0.0 and find_package()s
+          # LLVM with it, but Intel's tree is 22.1.0 — LLVM's config version file
+          # requires an exact match, so the default never resolves. Only affects
+          # out-of-tree builds; in-tree this find_package is not reached.
+          (lib.cmakeFeature "BASE_LLVM_VERSION" llvmVersion)
         ];
       });
 
@@ -501,7 +574,7 @@ in
 
         sourceRoot = "${finalAttrs.src.name}/spirv-to-ir-wrapper";
 
-        patches = [./patches/spirv-to-ir-wrapper.patch];
+        patches = [./patches/standalone-spirv-to-ir-wrapper.patch];
 
         nativeBuildInputs = [
           cmake
@@ -530,8 +603,7 @@ in
         inherit src;
 
         patches = [
-          ./patches/sycl.patch
-          ./patches/sycl-build-ur.patch
+          ./patches/standalone-sycl.patch
         ];
 
         sourceRoot = "${finalAttrs.src.name}/sycl";
@@ -601,12 +673,34 @@ in
 
       libdevice = stdenv.mkDerivation (
         finalAttrs: let
+          # cc-wrapper adds -mtls-dialect=gnu2 on x86 for any clang >= 19.1
+          # (pkgs/build-support/cc-wrapper/default.nix). Intel's clang accepts
+          # it for host compiles but rejects it under -fsycl-device-only with
+          # "unsupported option '-mtls-dialect=' for target x86_64-...", and
+          # every libdevice compile is device-only. Strip it from this wrapper
+          # only, so host builds elsewhere keep TLSDESC.
+          # The flag is emitted into add-local-cc-cflags-before.sh (machineFlags),
+          # not cc-cflags; each wrapper sources its own copy, so stripping it
+          # here does not affect any other compiler.
+          libdeviceClang = llvmFinal.clang-stage-1.override (prev: {
+            extraBuildCommands =
+              prev.extraBuildCommands
+              + ''
+                sed -i 's/ *-mtls-dialect=[a-z0-9]*//g' \
+                  $out/nix-support/add-local-cc-cflags-before.sh
+              '';
+          });
           tools = symlinkJoin {
             name = "libdevice-tools";
             paths = [
               llvmFinal.llvm
-              llvmFinal.clang-stage-1
+              libdeviceClang
               llvmFinal.clang-tools-stage-1
+              # Provides llvm-spirv, which libdevice needs to emit the .spv
+              # device libraries. It is not part of llvm/clang — in-tree it is
+              # built from llvm-spirv/ into the same bin dir, which is why the
+              # standalone build has to be told where it lives.
+              llvmFinal.spirv-llvm-translator
             ];
             postBuild = ''
               rm $out/bin/clang
@@ -632,8 +726,7 @@ in
           ];
 
           patches = [
-            ./patches/libdevice.patch
-            ./patches/libdevice-sycllibdevice.patch
+            ./patches/standalone-libdevice.patch
           ];
 
           hardeningDisable = ["zerocallusedregs"];
@@ -644,7 +737,7 @@ in
             "-DCLANG_TOOLS_DIR=${llvmFinal.clang-tools-stage-1}/bin"
             # Despite being in libdevice, this flag is called LIBCLC_, this is not a typo.
             "-DLIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR=${tools}/bin"
-            "-DLLVM_TARGETS_TO_BUILD=${targetsToBuild}"
+            "-DLIBDEVICE_TARGETS_TO_BUILD=${libdeviceTargets}"
           ];
         }
       );
@@ -658,7 +751,10 @@ in
         sourceRoot = "${finalAttrs.src.name}/sycl-jit";
 
         patches = [
-          ./patches/sycl-jit-standalone.patch
+          ./patches/standalone-sycl-jit.patch
+          # Prevent sycl-jit from leaking cmake build-dir paths into the
+          # generated ToolchainFiles table at runtime.
+          ./patches/sycl-jit-exclude-cmake-files.patch
         ];
 
         nativeBuildInputs = [
@@ -688,8 +784,8 @@ in
           cp -rn ${opencl-headers}/include/CL $resourceDir/include/ 2>/dev/null || true
 
           # Clang resource headers
-          mkdir -p $resourceDir/lib/clang/22
-          cp -r ${llvmFinal.libclang.lib}/lib/clang/22/include $resourceDir/lib/clang/22/
+          mkdir -p $resourceDir/lib/clang/23
+          cp -r ${llvmFinal.libclang.lib}/lib/clang/23/include $resourceDir/lib/clang/23/
           chmod -R u+w $resourceDir
 
           # Pass to cmake via shell expansion (lib.cmakeFeature escapes $TMPDIR)
@@ -711,11 +807,7 @@ in
       libclang =
         llvmPrev.libclang.overrideAttrs
         (old: {
-          # gnu-install-dirs is already applied at the monorepo level
-          patches =
-            builtins.filter
-            (p: !(lib.hasInfix "gnu-install-dirs" (toString p)))
-            old.patches;
+          # Keep nixpkgs libclang patches (AddClang.cmake etc.).
 
           buildInputs =
             (old.buildInputs or [])
@@ -767,6 +859,8 @@ in
         '';
 
         sourceRoot = "${finalAttrs.src.name}/xptifw";
+
+        patches = [./patches/standalone-xptifw.patch];
 
         nativeBuildInputs = [
           cmake

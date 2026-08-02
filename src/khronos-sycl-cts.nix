@@ -9,6 +9,9 @@
   ninja,
   procps,
   cudaPackages ? {},
+  # Accepted (and ignored) so the shared per-backend arg set from default.nix
+  # can be splatted in; the ROCm device libs come in via intel-llvm's stdenv.
+  rocmPackages ? {},
   rocmSupport ? false,
   cudaSupport ? false,
   levelZeroSupport ? !(rocmSupport || cudaSupport),

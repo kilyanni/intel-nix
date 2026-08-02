@@ -37,9 +37,7 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 
-  meta =
-    unwrapped.meta
-    // {
-      description = "Wrapped Intel LLVM clang tools with proper include paths";
-    };
+  meta = unwrapped.meta // {
+    description = "Wrapped Intel LLVM clang tools with proper include paths";
+  };
 }

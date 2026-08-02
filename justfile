@@ -23,6 +23,9 @@ test-whisper file variant="monolithic.rocm" *args="":
 test-llama variant="monolithic.rocm" *args="":
     nix run --builders '' '.#src.packages.{{variant}}.tests.llama-e2e' -- {{args}}
 
-# Build the SYCL compile test — sandboxed, no GPU required.
-test-sycl-compile:
-    nix build --builders '' --print-build-logs '.#src.llvm.passthru.tests.sycl-compile'
+# Build a SYCL compile test — sandboxed, no GPU required.
+# One test exists per backend the toolchain was built with; list them with
+#   nix eval '.#src.packages.monolithic.rocm.llvm.passthru.tests' --apply builtins.attrNames
+# target: spir64, native_cpu, amdgcn-amd-amdhsa, nvptx64-nvidia-cuda
+test-sycl-compile target="spir64" variant="monolithic.l0":
+    nix build --builders '' --print-build-logs '.#src.packages.{{variant}}.llvm.passthru.tests.sycl-compile-{{target}}'

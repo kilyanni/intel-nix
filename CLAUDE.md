@@ -21,8 +21,14 @@ nix build --builders '' --print-build-logs .#src.llama-cpp
 nix build --builders '' --print-build-logs .#src.packages.monolithic.rocm.oneDNN
 nix build --builders '' --print-build-logs .#src.packages.standalone.cuda.oneMath
 
-# SYCL compile test
-nix build --builders '' --print-build-logs .#src.llvm.passthru.tests.sycl-compile
+# SYCL compile tests — one per enabled backend, so the attr names vary with
+# the package set. List them first:
+#   nix eval .#src.llvm.passthru.tests --apply builtins.attrNames
+nix build --builders '' --print-build-logs .#src.llvm.passthru.tests.sycl-compile-spir64
+nix build --builders '' --print-build-logs .#src.packages.monolithic.rocm.llvm.passthru.tests.sycl-compile-amdgcn-amd-amdhsa
+nix build --builders '' --print-build-logs .#src.packages.monolithic.cuda.llvm.passthru.tests.sycl-compile-nvptx64-nvidia-cuda
+# The standalone toolchain hangs its tests off `clang`, not the scope:
+nix build --builders '' --print-build-logs .#src.packages.standalone.l0.llvm.clang.passthru.tests.sycl-compile-spir64
 
 # Toolkits (closed-source, needs --impure)
 NIXPKGS_ALLOW_UNFREE=1 nix build --impure --print-build-logs .#toolkits.installer.base
@@ -51,7 +57,22 @@ flake.nix         Uses nixpkgs-unstable; provides src.* and toolkits.* packages
 
 **Standalone** (`src/llvm-alt/`): Overlays `llvmPackages_22.overrideScope` — builds each component (libllvm, clang, sycl, libdevice, libclc, etc.) as separate derivations. More granular but complex; uses two-stage clang wrappers (clang-stage-1 without libdevice to avoid cycle, clang = stage-1 + libdevice).
 
-Both use the same Intel LLVM source rev and produce equivalent `stdenv`.
+Both build the same Intel LLVM source (tag `v7.0.0`) and produce equivalent `stdenv`.
+
+### Source revision
+
+Both toolchains pin the **`v7.0.0` release tag** (commit date `20260713`). Note this
+is a *release branch*, not a point on `sycl` main: it forked at 2026-01-29 and carries
+its own stabilisation commits, so it is missing features that landed on main since.
+The pins live in:
+
+- `src/llvm/package.nix` — `version`, `src.tag`, `commitDate`
+- `src/llvm-alt/standalone.nix` — `version`, `date`, `srcOrig.src.tag`
+- `src/llvm-alt/update-patches.fish` — `BASE`
+- `src/llvm-alt/deps.nix` + `src/vc-intrinsics.nix` — vc-intrinsics rev, which must
+  match `LLVMGenXIntrinsics_GIT_TAG` in intel/llvm's `llvm/lib/SYCLLowerIR/CMakeLists.txt`
+
+All five must move together.
 
 ## Package Set Combinatorics (`src/default.nix`)
 
@@ -88,18 +109,52 @@ When `useCcache = true` (default), `intel-llvm.stdenv` is a ccache-wrapped stden
 - `sycl-jit-exclude-cmake-files.patch` — prevents output cycles from bundled cmake in sycl-jit
 - `cuda-path-env-linux.patch` — teaches `CudaInstallationDetector` to check `CUDA_PATH` on Linux
 
-**`src/llvm-alt/patches/`** (standalone build):
-- `vc-intrinsics-install-dirs.patch` — fixes `$<INSTALL_INTERFACE:include>` → `$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>` in vc-intrinsics, preventing cmake generate-phase failure due to `$out/include` not existing
-- Plus patches for `libclc`, `libdevice`, `sycl`, `sycl-jit`, `opencl`, `spirv-to-ir-wrapper`
+**`src/llvm-alt/patches/`** (standalone build) — all except `vc-intrinsics-install-dirs.patch`
+are **generated**, do not hand-edit them:
+
+- `vc-intrinsics-install-dirs.patch` — hand-written. Fixes `$<INSTALL_INTERFACE:include>` → `$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>` in vc-intrinsics, preventing cmake generate-phase failure due to `$out/include` not existing
+- `gnu-install-dirs.patch` — monorepo-level; applied at `srcOrig` root
+- `standalone-{libclc,libdevice,opencl,spirv-to-ir-wrapper,sycl,sycl-jit,xptifw}.patch` and
+  `sycl-jit-exclude-cmake-files.patch` — component-level, stripped to apply with `-p1` at
+  each component's `sourceRoot`
+
+### Regenerating patches
+
+`src/llvm-alt/update-patches.fish` regenerates them from branches in
+`~/src/stuff/intel/intel-llvm`. Two branch families live there:
+
+- **`fix/*`** — the upstream-targeted branches (one per intel/llvm PR, see
+  `~/src/stuff/intel/PR-NOTES.md`), based on `upstream/sycl` and each checked out in its
+  own worktree under `intel-llvm-worktrees/`. **Do not rebase these onto a release tag** —
+  that is what makes them submittable.
+- **`v7/*`** — packaging-only ports of those same commits onto `v7.0.0`, which is what we
+  actually build. Regenerate with `git cherry-pick fix/<name>` onto the new base.
+
+`v7/gnu-install-dirs-full` is `fix/install-dirs-destdir` + `fix/gnu-install-dirs` squashed
+into one patch file, since we apply them together.
 
 **Important**: New patch files must be `git add`-ed before nix can include them from the flake source.
 
 ## Flake Inputs
 
-- `nixpkgs` — nixos-unstable (primary)
-- `nixpkgs-llvm` — PR #511852 (provides `intel-llvm` overlay)
-- `nixpkgs-oneapi` — PR #512223 (provides `intel-oneapi` overlay)
-- All use `allowUnfree = true` for CUDA & MKL
+- `nixpkgs` — nixos-unstable, the only real input (`flake-utils` aside)
+- `config.allowUnfree = true` for CUDA & MKL, set in `flake.nix`
+- The `intel-llvm` / `intel-oneapi` packages are built **in-tree** here, not pulled from a
+  nixpkgs PR branch. `src/default.nix` has a `fromNixpkgs` toggle to switch individual
+  packages over to `pkgs.*` once the corresponding PR lands.
+
+## Relationship to the nixpkgs PRs
+
+`src/llvm/` is deliberately kept as a near-verbatim copy of nixpkgs'
+`pkgs/by-name/in/intel-llvm/` (currently tracking
+[#546860](https://github.com/NixOS/nixpkgs/pull/546860), `intel-llvm: -> 7.0.0`) plus a
+small set of project-specific extras: the compiler-rt runtimes setup for CUDA/ROCm,
+`NIX_LDFLAGS = "-lhwloc"`, the `lib/clang` triple symlink, and `cuda-path-env-linux.patch`.
+Keep the diff against the PR branch small so changes flow both ways.
+
+`src/onemath.nix` and `src/onemath-sycl-blas.nix` track
+[#514640](https://github.com/NixOS/nixpkgs/pull/514640) (`oneMath` +
+`generic-sycl-components`), with MKL support and the `cudaGpuArch` knob added on top.
 
 ## Nix Gotchas
 

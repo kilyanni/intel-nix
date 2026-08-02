@@ -185,22 +185,28 @@ index e61efbb303fc..a73c58584567 100644
  config.substitutions.append(('%{flags}', '--sysroot=@CMAKE_INSTALL_PREFIX@'))
  
 diff --git a/libdevice/cmake/modules/SYCLLibdevice.cmake b/libdevice/cmake/modules/SYCLLibdevice.cmake
-index ab605b9685ff..26449e68c454 100644
+index 4f7d06e668ba..7ecd77ebc002 100644
 --- a/libdevice/cmake/modules/SYCLLibdevice.cmake
 +++ b/libdevice/cmake/modules/SYCLLibdevice.cmake
-@@ -14,9 +14,9 @@ else()
+@@ -6,15 +6,15 @@ else()
+   set(devicelib_host_static_obj libsycl-devicelib-host.a)
  endif()
  set(bc-suffix bc)
- set(bc_binary_dir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
 -set(install_dest_obj lib${LLVM_LIBDIR_SUFFIX})
--set(install_dest_obj-new-offload lib${LLVM_LIBDIR_SUFFIX})
--set(install_dest_bc lib${LLVM_LIBDIR_SUFFIX})
 +set(install_dest_obj ${CMAKE_INSTALL_LIBDIR})
-+set(install_dest_obj-new-offload ${CMAKE_INSTALL_LIBDIR})
-+set(install_dest_bc ${CMAKE_INSTALL_LIBDIR})
  
- string(CONCAT sycl_targets_opt
-   "-fsycl-targets="
+ if(WIN32)
+   # On Windows, install to lib/
+-  set(install_dest_bc lib${LLVM_LIBDIR_SUFFIX})
++  set(install_dest_bc ${CMAKE_INSTALL_LIBDIR})
+   set(bc_binary_dir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+ else()
+   # On other platforms, install to lib/dpcpp-<major_ver>/sycl
+-  set(bc_dir "lib${LLVM_LIBDIR_SUFFIX}/dpcpp-${DPCPP_VERSION_MAJOR}/sycl")
++  set(bc_dir "${CMAKE_INSTALL_LIBDIR}/dpcpp-${DPCPP_VERSION_MAJOR}/sycl")
+   set(install_dest_bc ${bc_dir})
+   set(bc_binary_dir "${CMAKE_BINARY_DIR}/${bc_dir}")
+ endif()
 diff --git a/libunwind/test/configs/armv7m-picolibc-libunwind.cfg.in b/libunwind/test/configs/armv7m-picolibc-libunwind.cfg.in
 index 6ffdd70c6177..fadb6b3cb02f 100644
 --- a/libunwind/test/configs/armv7m-picolibc-libunwind.cfg.in
@@ -286,10 +292,10 @@ index 814c59251611..7188084e8061 100644
  Name: LLVMSPIRVLib
  Description: LLVM/SPIR-V bi-directional translator
 diff --git a/llvm/CMakeLists.txt b/llvm/CMakeLists.txt
-index 89fe7a0b62b0..604801723a00 100644
+index 4518d3e1264d..ee11de0a3a09 100644
 --- a/llvm/CMakeLists.txt
 +++ b/llvm/CMakeLists.txt
-@@ -1196,9 +1196,9 @@ if (NOT TENSORFLOW_AOT_PATH STREQUAL "")
+@@ -1197,9 +1197,9 @@ if (NOT TENSORFLOW_AOT_PATH STREQUAL "")
    add_subdirectory(${TENSORFLOW_AOT_PATH}/xla_aot_runtime_src
      ${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/tf_runtime)
    install(TARGETS tf_xla_runtime EXPORT LLVMExports
@@ -302,10 +308,10 @@ index 89fe7a0b62b0..604801723a00 100644
    # Once we add more modules, we should handle this more automatically.
    if (DEFINED LLVM_OVERRIDE_MODEL_HEADER_INLINERSIZEMODEL)
 diff --git a/llvm/cmake/modules/AddLLVM.cmake b/llvm/cmake/modules/AddLLVM.cmake
-index 1fefc2610afc..f2565776635e 100644
+index d938214f9d0d..dc39a292aa90 100644
 --- a/llvm/cmake/modules/AddLLVM.cmake
 +++ b/llvm/cmake/modules/AddLLVM.cmake
-@@ -949,8 +949,9 @@ macro(add_llvm_library name)
+@@ -955,8 +955,9 @@ macro(add_llvm_library name)
        endif()
        install(TARGETS ${name}
                ${export_to_llvmexports}
@@ -317,7 +323,7 @@ index 1fefc2610afc..f2565776635e 100644
                RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT ${name})
  
        if (NOT LLVM_ENABLE_IDE)
-@@ -2273,7 +2274,7 @@ function(llvm_install_library_symlink name dest type)
+@@ -2279,7 +2279,7 @@ function(llvm_install_library_symlink name dest type)
      set(LLVM_LINK_OR_COPY copy)
    endif()
  
@@ -326,7 +332,7 @@ index 1fefc2610afc..f2565776635e 100644
    if((WIN32 OR CYGWIN) AND "${type}" STREQUAL "SHARED")
      set(output_dir "${CMAKE_INSTALL_BINDIR}")
    endif()
-@@ -2555,10 +2556,10 @@ function(llvm_setup_rpath name)
+@@ -2561,10 +2561,10 @@ function(llvm_setup_rpath name)
      # Since BUILD_SHARED_LIBS is only recommended for use by developers,
      # hardcode the rpath to build/install lib dir first in this mode.
      # FIXME: update this when there is better solution.
@@ -488,10 +494,19 @@ index 9bd7b0b0ea59..1232f5f0d748 100644
        COMPONENT ${name})
    endif()
 diff --git a/sycl/CMakeLists.txt b/sycl/CMakeLists.txt
-index 3586a8d725ab..b13829cb61d1 100644
+index 9d11782674dd..2969893f4b4a 100644
 --- a/sycl/CMakeLists.txt
 +++ b/sycl/CMakeLists.txt
-@@ -356,13 +356,13 @@ if (NOT WIN32)
+@@ -295,7 +295,7 @@ add_custom_command(
+ install(DIRECTORY "${sycl_inc_dir}/sycl" DESTINATION ${SYCL_INCLUDE_DIR} COMPONENT sycl-headers)
+ install(DIRECTORY "${sycl_inc_dir}/CL" DESTINATION ${SYCL_INCLUDE_DIR}/ COMPONENT sycl-headers)
+ install(DIRECTORY "${sycl_inc_dir}/std" DESTINATION ${SYCL_INCLUDE_DIR} COMPONENT sycl-headers)
+-install(DIRECTORY "${UNIFIED_RUNTIME_INCLUDE_DIR}/unified-runtime" DESTINATION ${SYCL_INCLUDE_DIR} COMPONENT sycl-headers)
++install(DIRECTORY "${UNIFIED_RUNTIME_INCLUDE_DIR}/unified-runtime" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT sycl-headers)
+ 
+ if (WIN32)
+   set(SYCL_RT_LIBS sycl${SYCL_MAJOR_VERSION})
+@@ -348,13 +348,13 @@ if (NOT WIN32)
    install(FILES
      "${CMAKE_CURRENT_SOURCE_DIR}/gdb/libsycl.so-gdb.py"
      RENAME "libsycl.so.${SYCL_VERSION_STRING}-gdb.py"
@@ -506,7 +521,7 @@ index 3586a8d725ab..b13829cb61d1 100644
 +      DESTINATION ${CMAKE_INSTALL_LIBDIR}/
        COMPONENT sycl-headers-extras)
    endif()
- endif()
+ 
 diff --git a/sycl/cmake/modules/BuildUnifiedRuntime.cmake b/sycl/cmake/modules/BuildUnifiedRuntime.cmake
 index 646ca364a10f..724569d6c9fe 100644
 --- a/sycl/cmake/modules/BuildUnifiedRuntime.cmake
@@ -580,10 +595,10 @@ index f469b2604760..a8728bdfb5b1 100644
              COMPONENT ${ARG_TARGET_NAME}
              OPTIONAL)
 diff --git a/sycl/source/CMakeLists.txt b/sycl/source/CMakeLists.txt
-index c7e943a629a6..4fbff3274db6 100644
+index 40327b594678..5f25cb498381 100644
 --- a/sycl/source/CMakeLists.txt
 +++ b/sycl/source/CMakeLists.txt
-@@ -191,7 +191,7 @@ function(add_sycl_rt_library LIB_NAME LIB_OBJ_NAME)
+@@ -198,7 +198,7 @@ function(add_sycl_rt_library LIB_NAME LIB_OBJ_NAME)
          COMMENT "Creating version-agnostic copy of the import library.")
        install(
          FILES ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${ARG_IMPLIB_NAME}.lib
@@ -592,7 +607,7 @@ index c7e943a629a6..4fbff3274db6 100644
      endif()
    endif()
  
-@@ -429,6 +429,6 @@ if (WIN32)
+@@ -436,6 +436,6 @@ if (WIN32)
  endif()
  
  install(TARGETS ${SYCL_RT_LIBS}
@@ -708,13 +723,13 @@ index d79c3a9da8bd..6aac2abcd9ea 100644
  
  Name: Unified Runtime Loader
 diff --git a/xpti/src/CMakeLists.txt b/xpti/src/CMakeLists.txt
-index 1d7e371e98a1..8d3e1a8b4ec3 100644
+index 0f6692c18347..5728d1834f8a 100644
 --- a/xpti/src/CMakeLists.txt
 +++ b/xpti/src/CMakeLists.txt
-@@ -11,9 +11,9 @@ macro(add_xpti_lib target_name)
- 
-   # Set the location of the library installation
+@@ -22,9 +22,9 @@ macro(add_xpti_lib target_name)
+   # Set the location of the library installation.
    install(TARGETS ${target_name}
+     EXPORT xptiTargets
 -    RUNTIME DESTINATION bin COMPONENT xpti
 -    LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT xpti
 -    ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT xpti
@@ -725,7 +740,7 @@ index 1d7e371e98a1..8d3e1a8b4ec3 100644
  endmacro()
  
 diff --git a/xptifw/CMakeLists.txt b/xptifw/CMakeLists.txt
-index 4953302d2a23..531f12c02aef 100644
+index 78549309cafe..29d29e005b1b 100644
 --- a/xptifw/CMakeLists.txt
 +++ b/xptifw/CMakeLists.txt
 @@ -13,9 +13,9 @@ set(SAMPLES_DIR ${CMAKE_CURRENT_LIST_DIR}/samples)
@@ -741,13 +756,13 @@ index 4953302d2a23..531f12c02aef 100644
  endif()
  
 diff --git a/xptifw/src/CMakeLists.txt b/xptifw/src/CMakeLists.txt
-index 1026bc505f4e..5816b3a75cf5 100644
+index 5e865aa3714e..10e6bfc925e3 100644
 --- a/xptifw/src/CMakeLists.txt
 +++ b/xptifw/src/CMakeLists.txt
-@@ -81,9 +81,9 @@ function(add_xpti_library LIB_NAME)
-   # Set the location of the library installation
+@@ -93,9 +93,9 @@ function(add_xpti_library LIB_NAME)
    include(GNUInstallDirs)
    install(TARGETS ${LIB_NAME}
+     EXPORT xptifwTargets
 -    RUNTIME DESTINATION bin COMPONENT xptifw
 -    LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT xptifw
 -    ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX} COMPONENT xptifw

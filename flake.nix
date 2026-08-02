@@ -3,16 +3,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixpkgs-llvm.url = "github:NixOS/nixpkgs/pull/511852/head";
-    nixpkgs-oneapi.url = "github:NixOS/nixpkgs/pull/512223/head";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs = {
     self,
     nixpkgs,
-    nixpkgs-llvm,
-    nixpkgs-oneapi,
     flake-utils,
   }:
     flake-utils.lib.eachDefaultSystem (
@@ -25,14 +21,20 @@
 
           overlays = [
             (final: prev: {
-              intel-llvm = nixpkgs-llvm.legacyPackages.${system}.intel-llvm;
-              intel-oneapi = nixpkgs-oneapi.legacyPackages.${system}.intel-oneapi;
-
-              # ccacheWrapper replaces cc.cc (the real compiler) with ccache.links
-              # but drops hardeningUnsupportedFlags* in the process, because
-              # cc-wrapper reads those attrs from the cc arg (which becomes
-              # ccache.links). Forward them from the original cc.cc so the
-              # cc-wrapper still sees the correct hardening constraints.
+              # ccacheWrapper replaces cc.cc (the real compiler) with ccache.links,
+              # and cc-wrapper reads a number of attrs off that cc arg. Upstream's
+              # ccache.links forwards isClang/isGNU and hardeningUnsupportedFlags*,
+              # but not langC/langCC, so forward what it misses from the original
+              # cc.cc.
+              #
+              # langCC matters for clang specifically: cc-wrapper only emits the
+              # `-cxx-isystem` libstdc++ paths when
+              #   libcxx == null && isClang && useGccForLibs && cc.langCC
+              # (pkgs/build-support/cc-wrapper/default.nix). Without it,
+              # nix-support/libcxx-cxxflags comes out empty while `-nostdlibinc`
+              # is still applied, so every C++ compile fails to find <atomic> and
+              # friends. Only bites clang stdenvs, which is why the gcc-based
+              # default stdenv never showed it.
               ccacheWrapper =
                 prev.lib.makeOverridable (
                   {
@@ -48,6 +50,8 @@
                         // builtins.intersectAttrs {
                           hardeningUnsupportedFlagsByTargetPlatform = null;
                           hardeningUnsupportedFlags = null;
+                          langC = null;
+                          langCC = null;
                         }
                         cc.cc;
                     }

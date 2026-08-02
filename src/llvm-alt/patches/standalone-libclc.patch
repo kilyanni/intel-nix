@@ -1,0 +1,45 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d723fea5288c..6d85ec6b41ac 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -74,6 +74,10 @@ if( LIBCLC_STANDALONE_BUILD OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DI
+ 
+   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_DIR}")
+   include(AddLLVM)
++  # libclc-remangler links clang libraries and uses clang_target_link_libraries.
++  find_package(Clang REQUIRED CONFIG)
++  list(APPEND CMAKE_MODULE_PATH ${Clang_DIR})
++  include(AddClang)
+ 
+   message( STATUS "libclc LLVM version: ${LLVM_PACKAGE_VERSION}" )
+ 
+@@ -84,14 +88,14 @@ if( LIBCLC_STANDALONE_BUILD OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DI
+   # Import required tools
+   if( NOT EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR} )
+     foreach( tool IN ITEMS clang llvm-as llvm-link llvm-spirv opt )
+-      find_program( LLVM_TOOL_${tool} ${tool} PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH )
++      find_program( LLVM_TOOL_${tool} ${tool} HINTS ${LLVM_TOOLS_BINARY_DIR} )
+       set( ${tool}_exe ${LLVM_TOOL_${tool}} )
+       set( ${tool}_target )
+     endforeach()
+   endif()
+ 
+   # Setup the paths where libclc runtimes should be stored.
+-  set( LIBCLC_OUTPUT_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR} )
++  set( LIBCLC_OUTPUT_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/lib/clc )
+   set( LIBCLC_INSTALL_DIR ${CMAKE_INSTALL_DATADIR}/clc )
+ else()
+   # In-tree configuration
+diff --git a/utils/libclc-remangler/CMakeLists.txt b/utils/libclc-remangler/CMakeLists.txt
+index c764eed682f0..7ecebdd299b7 100644
+--- a/utils/libclc-remangler/CMakeLists.txt
++++ b/utils/libclc-remangler/CMakeLists.txt
+@@ -10,7 +10,7 @@ set(LLVM_LINK_COMPONENTS
+   TargetParser
+   )
+ 
+-add_clang_tool(libclc-remangler LibclcRemangler.cpp)
++add_llvm_utility(libclc-remangler LibclcRemangler.cpp)
+ 
+ setup_host_tool( libclc-remangler LIBCLC_REMANGLER
+   libclc-remangler_exe libclc-remangler_target )
