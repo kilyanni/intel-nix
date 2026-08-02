@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.llvm-standalone.llvm
+          component: src-no-ccache.llvm-standalone.llvm
           display-name: "Intel Open Source DPC++ Compiler (Non-Monolithic, Core)"
 
   llvm-tools-stage1:
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.llvm-standalone.${{ matrix.component }}
+          component: src-no-ccache.llvm-standalone.${{ matrix.component }}
           display-name: "Intel Open Source DPC++ Compiler (Non-Monolithic, ${matrix.component})"
 
   llvm-tools-stage2:
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.llvm-standalone.${{ matrix.component }}
+          component: src-no-ccache.llvm-standalone.${{ matrix.component }}
           display-name: "Intel Open Source DPC++ Compiler (Non-Monolithic, ${matrix.component})"
 
   llvm-mono:
@@ -57,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.llvm-monolithic
+          component: src-no-ccache.llvm-monolithic
           display-name: "Intel Open Source DPC++ Compiler (Monolithic)"
 
   oneapi-src:
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.${{ matrix.component }}
+          component: src-no-ccache.${{ matrix.component }}
           display-name: ${{ matrix.component }}
 
   khronos-sycl-cts:
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.khronos-sycl-cts
+          component: src-no-ccache.khronos-sycl-cts
           display-name: Khronos SYCL Conformance Test Suite
 
   ggml:
@@ -96,5 +96,5 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/nix-build
         with:
-          component: src.${{ matrix.component }}
+          component: src-no-ccache.${{ matrix.component }}
           display-name: ${{ matrix.component }}

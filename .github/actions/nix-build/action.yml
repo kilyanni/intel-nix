@@ -8,6 +8,12 @@ inputs:
     description: "Display name for the build step (defaults to component name)"
     required: false
     default: ""
+  free:
+    description: >-
+      Whether the component is free software. Unfree components (the oneAPI
+      toolkits) need --impure and NIXPKGS_ALLOW_UNFREE.
+    required: false
+    default: "true"
 runs:
   using: "composite"
   steps:
@@ -42,12 +48,12 @@ runs:
 
     - name: Build ${{ inputs.display-name || inputs.component }}
       shell: bash
-      if: ${{ inputs.free == true }}
+      if: ${{ inputs.free == 'true' }}
       run: nix build --print-build-logs --keep-going -j 2 .#${{ inputs.component }}
 
     - name: Build ${{ inputs.display-name || inputs.component }}
       shell: bash
-      if: ${{ inputs.free == false }}
+      if: ${{ inputs.free != 'true' }}
       env:
         NIXPKGS_ALLOW_UNFREE: 1
       run: nix build --impure --print-build-logs --keep-going -j 2 .#${{ inputs.component }}
