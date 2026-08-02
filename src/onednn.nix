@@ -46,13 +46,13 @@ in
   # https://github.com/uxlfoundation/oneDNN#oneapi-deep-neural-network-library-onednn
   stdenv.mkDerivation (finalAttrs: {
     pname = "oneDNN";
-    version = "3.11.2";
+    version = "3.13";
 
     src = fetchFromGitHub {
       owner = "uxlfoundation";
       repo = "oneDNN";
       rev = "v${finalAttrs.version}";
-      hash = "sha256-xJTllrKs6mPNM85ZqyHTHWKpVOtOghmg4ZRFAvQZ4WU=";
+      hash = "sha256-wgYcZT04nL6ALG0sNkA4fjfkYag/l4CQY4P6S5TrJZo=";
     };
 
     outputs = [
