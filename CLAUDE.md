@@ -156,6 +156,37 @@ Keep the diff against the PR branch small so changes flow both ways.
 [#514640](https://github.com/NixOS/nixpkgs/pull/514640) (`oneMath` +
 `generic-sycl-components`), with MKL support and the `cudaGpuArch` knob added on top.
 
+## ggml / whisper.cpp / llama.cpp pins are capped
+
+Do not bump these to current upstream, and do not trust nixpkgs' pins for them:
+nixpkgs does not enable SYCL for ggml, so its versions never exercise the path
+this repo depends on.
+
+llama.cpp `bf38346d` (2026-02-02,
+[#19246](https://github.com/ggml-org/llama.cpp/pull/19246)) removed the NVIDIA
+and AMD SYCL targets outright — `ggml-sycl/CMakeLists.txt` now hard-fails with
+`GGML_SYCL_TARGET: Invalid target, the supported options are [INTEL]`. The same
+commit dropped oneMath, which was only used on those code paths, so the
+surviving INTEL target requires `MKL::MKL_SYCL::BLAS`. ggml 0.18.0 and
+llama.cpp b10133 both carry it.
+
+The stated reason is that Codeplay's oneAPI plugins for NVIDIA/AMD cannot be
+downloaded any more — a *distribution* problem. It does not apply here: we
+build intel/llvm from source with the CUDA and HIP backends compiled in, and
+both device targets are verified working (`sycl-compile-amdgcn-amd-amdhsa`,
+`sycl-compile-nvptx64-nvidia-cuda`, plus the `sycl-run-hip` GPU test).
+
+Ceiling: **llama.cpp `b7910`** (2026-02-02 15:05) is the last tag with
+`MATCHES "^(INTEL|NVIDIA|AMD)$"`; `b7911`, six hours later, is the first
+without. Going past it needs either a revert of `bf38346d` carried as a patch,
+or an upstream build-from-source path.
+
+Unrelated but adjacent: **`src.ggml` does not build today**, at the committed
+pins, for the same `MKL::MKL_SYCL::BLAS` reason (nixpkgs' mkl 2023.1.0 does not
+provide that target). It has no dependents — whisper.cpp and llama.cpp vendor
+their own ggml and `default.nix` does not pass ours to them — so nothing
+noticed. CI's `ggml` job will fail on it.
+
 ## CI (`.github/`)
 
 `build.yml` drives the composite action in `.github/actions/nix-build/`.
